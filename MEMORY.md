@@ -44,10 +44,10 @@ A simple, local, cross-platform application code-protection CLI for developers t
 
 ## 3. Current Phase & Progress
 
-- **Current Phase**: Phase 2: Specifications, Threat Model, Architecture & Acceptance Criteria
-- **Current Plan**: 02-01 (Architecture contracts, schemas, and MVP specifications)
-- **Status**: Phase 2 Planning Complete (Awaiting User Approval before Phase 3 Implementation)
-- **Overall Progress**: 28% (Phases 1 & 2 planned and verified; Phases 3–7 pending implementation)
+- **Current Phase**: Phase 3: Core Python CLI Foundation, Workspace Isolation & Test Harness
+- **Current Plan**: 03-01 Complete (Python CLI Foundation, config validation, doctor checks, output overwrite guards, 29 pytest tests)
+- **Status**: Plan 03-01 Complete; Awaiting user review before Plan 03-02 (Workspace staging & test harness)
+- **Overall Progress**: 33% (Phases 1 & 2 complete; Phase 3 Plan 03-01 implemented and verified)
 
 ---
 
@@ -58,11 +58,17 @@ A simple, local, cross-platform application code-protection CLI for developers t
 - [x] Completed Phase 1 Research dossier (`.planning/research/PHASE1_RESEARCH.md`).
 - [x] Established root-level `MEMORY.md` and permanent project governance rules.
 - [x] Completed Phase 2 Specifications dossier (`.planning/specs/PHASE2_SPECIFICATIONS.md`) covering CLI schema, interfaces, report schema, R8 MVP, and test fixtures.
+- [x] Completed Plan 03-01: Python CLI Foundation:
+  - `pyproject.toml` configuration with editable package support.
+  - `appshield/cli.py`: Implemented CLI entry point and subcommands (`info`, `doctor`, `protect`, `verify`).
+  - `appshield/config.py`: Implemented YAML/JSON configuration loader, schema validation, APK rejection, password masking, default exclusions, and `validate_output_destination` overwrite guard.
+  - `appshield/doctor.py`: Local environment prerequisite detection (Java, Javac, `JAVA_HOME`, `ANDROID_HOME`, Gradle/gradlew, `zipalign`, `apksigner`).
+  - Automated tests: 29 unit tests in `tests/test_cli.py` and `tests/test_config.py` passing with 100% success rate.
+  - Linter (`ruff`), type checker (`mypy`), and security scanner (`bandit`) clean with zero issues.
 
 ### Pending Immediate Tasks
-- [ ] Obtain user approval for revised Phase 2 specifications.
-- [ ] Prepare Phase 3 implementation plan (`03-01`: CLI scaffolding & config loader, `03-02`: sandbox manager & test harness).
-- [ ] Build minimal Android Gradle test fixture (`tests/fixtures/sample_android_gradle_project/`).
+- [ ] Obtain user review and approval for Plan 03-01.
+- [ ] Plan 03-02: Isolated workspace sandbox manager, input immutability guard, disposable Android Gradle test fixture (`tests/fixtures/sample_android_gradle_project/`), and integration tests.
 
 ---
 

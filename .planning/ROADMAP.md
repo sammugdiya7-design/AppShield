@@ -67,7 +67,7 @@ Plans:
 **Plans**: 2 plans (03-01: CLI shell & config parser, 03-02: Isolated workspace sandbox manager & test fixture harness)
 
 Plans:
-- [ ] 03-01: CLI scaffolding, subcommand registration, and config loader.
+- [x] 03-01: CLI scaffolding, subcommand registration, and config loader.
 - [ ] 03-02: Workspace sandbox manager, input immutability guard, test fixture, and test suite.
 
 ---
