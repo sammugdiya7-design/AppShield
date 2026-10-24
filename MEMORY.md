@@ -35,15 +35,19 @@ A simple, local, cross-platform application code-protection CLI for developers t
 | **Verification Loop** | Headless automated decompiler audit (JADX, symbol scan) | Replaces "security theater" with empirical verification. |
 | **Licensing Boundary** | MIT/Apache core; GPL tools run strictly as external CLI subprocesses | Prevents viral GPL contamination of the AppShield codebase. |
 | **Platform Strategy** | Phased rollout: Android (v1) -> iOS (v2) -> Windows (v2) | Focuses engineering effort on the highest-demand, most accessible mobile platform first. |
+| **Objective Verification** | Empirical checks only; no composite "resistance score" | Opaque numerical scores provide a false sense of security; objective counts and percentages provide auditable truth. |
+| **Android MVP Engine** | Official Google R8 CLI + `zipalign` + `apksigner` | Reliable, modern industry standard; avoids custom bytecode decompiler bugs. |
+| **Credential Masking** | Passwords referenced exclusively via env var names | Eliminates plaintext credentials from CLI flags, process lists, and disk files. |
+| **Disposable Test Fixtures** | Isolated sample APK (`mini_app.apk`) for test suites | Satisfies safety rule: destructive/mutating operations run exclusively on disposable fixtures. |
 
 ---
 
 ## 3. Current Phase & Progress
 
-- **Current Phase**: Phase 1: Domain Research, Engines, Licenses & Platform Limitations
-- **Current Plan**: 01-01 (Domain research, competitive analysis, and architecture proposal)
-- **Status**: Planning & Research Under Review (No implementation code yet)
-- **Overall Progress**: 0% (Phase 1 planning complete, Phase 2-7 pending approval)
+- **Current Phase**: Phase 2: Specifications, Threat Model, Architecture & Acceptance Criteria
+- **Current Plan**: 02-01 (Architecture contracts, schemas, and MVP specifications)
+- **Status**: Phase 2 Planning Complete (Awaiting User Approval before Phase 3 Implementation)
+- **Overall Progress**: 28% (Phases 1 & 2 planned and verified; Phases 3–7 pending implementation)
 
 ---
 
@@ -53,11 +57,12 @@ A simple, local, cross-platform application code-protection CLI for developers t
 - [x] Initialized GSD planning infrastructure (`PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, `config.json`).
 - [x] Completed Phase 1 Research dossier (`.planning/research/PHASE1_RESEARCH.md`).
 - [x] Established root-level `MEMORY.md` and permanent project governance rules.
+- [x] Completed Phase 2 Specifications dossier (`.planning/specs/PHASE2_SPECIFICATIONS.md`) covering CLI schema, interfaces, report schema, R8 MVP, and test fixtures.
 
 ### Pending Immediate Tasks
-- [ ] Incorporate user review feedback into Phase 1 planning artifacts.
-- [ ] Formulate Phase 2 Specifications (configuration schema, abstract base classes, threat model, verification rubric).
-- [ ] Obtain explicit user approval before beginning any Phase 3 implementation.
+- [ ] Obtain user approval for Phase 2 specifications.
+- [ ] Prepare Phase 3 implementation plan (`03-01`: CLI scaffolding & config loader, `03-02`: sandbox manager & test harness).
+- [ ] Build disposable test fixture (`tests/fixtures/sample_android/mini_app.apk`).
 
 ---
 

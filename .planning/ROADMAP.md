@@ -32,23 +32,25 @@ AppShield is developed across 7 modular phases, transitioning from deep domain a
 **Plans**: 1 plan (01-01: Research synthesis, architecture proposal, and governance foundation)
 
 Plans:
-- [ ] 01-01: Domain research synthesis, license audit, competitor comparison, technical feasibility documentation, and root MEMORY.md initialization.
+- [x] 01-01: Domain research synthesis, license audit, competitor comparison, technical feasibility documentation, and root MEMORY.md initialization.
 
 ---
 
 ### Phase 2: Specifications, Threat Model, Architecture & Acceptance Criteria
-**Goal**: Produce the system architecture blueprint, modular plugin API design, threat model, and rigorous acceptance test criteria.  
+**Goal**: Produce the system architecture blueprint, minimal plugin API design, configuration schema, objective verification report schema, and Android R8 MVP workflow without writing implementation code.  
 **Depends on**: Phase 1  
-**Requirements**: Architecture definition for CLI-01, ISO-01, ISO-02, ISO-03, SEC-01  
+**Requirements**: CLI-01, CLI-02, ISO-01, ISO-02, ISO-03, SEC-01, GOV-02, GOV-03, GOV-04  
 **Success Criteria**:
-  1. Documented component architecture: CLI Dispatcher, Sandbox Manager, Platform Pipeline Adapters, Verification Engine, and Audit Reporter.
-  2. Threat Model document explicitly identifying in-scope adversary capabilities and out-of-scope physical runtime attacks.
-  3. Formal schema for `appshield.yaml` configuration and JSON verification reports.
-  4. Measurable acceptance test criteria defined for every subsequent phase.  
-**Plans**: 1 plan (02-01: Specifications, Threat Model, and Architecture Contract)
+  1. Minimal component architecture: CLI Dispatcher, Sandbox Manager, PlatformAdapter, and VerificationEngine specified without unnecessary abstractions.
+  2. Strict configuration schema specified for `appshield.yaml` and `.appshield.json`.
+  3. Objective empirical verification report schema (`audit_report.json`) defined, explicitly banning opaque composite "resistance scores".
+  4. Real, reproducible Android R8 MVP protection workflow mapped out (unbundling, keep-rules, R8 invocation, zipalign, and credential-safe apksigner).
+  5. Source preservation, isolated output directory, credential safety, and atomic failure recovery protocols documented.
+  6. Disposable sample test fixture specification defined (`mini_app.apk`).  
+**Plans**: 1 plan (02-01: Specifications, Schemas, and Architecture Contracts)
 
 Plans:
-- [ ] 02-01: Architecture contract, threat model, and configuration schema design.
+- [x] 02-01: Architecture contracts, configuration schema, verification report schema, and Android R8 MVP specifications.
 
 ---
 
@@ -138,8 +140,8 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Domain Research & Feasibility | 0/1 | In progress | - |
-| 2. Specs & Threat Model | 0/1 | Not started | - |
+| 1. Domain Research & Feasibility | 1/1 | Complete | 2026-10-24 |
+| 2. Specs & Threat Model | 1/1 | Complete (Planning) | 2026-10-24 |
 | 3. CLI Foundation & Sandboxing | 0/2 | Not started | - |
 | 4. Android Pipeline & Verification | 0/2 | Not started | - |
 | 5. iOS Protection Engine | 0/1 | Not started | - |
