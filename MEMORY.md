@@ -60,9 +60,9 @@ A simple, local, cross-platform application code-protection CLI for developers t
 - [x] Completed Phase 2 Specifications dossier (`.planning/specs/PHASE2_SPECIFICATIONS.md`) covering CLI schema, interfaces, report schema, R8 MVP, and test fixtures.
 
 ### Pending Immediate Tasks
-- [ ] Obtain user approval for Phase 2 specifications.
+- [ ] Obtain user approval for revised Phase 2 specifications.
 - [ ] Prepare Phase 3 implementation plan (`03-01`: CLI scaffolding & config loader, `03-02`: sandbox manager & test harness).
-- [ ] Build disposable test fixture (`tests/fixtures/sample_android/mini_app.apk`).
+- [ ] Build minimal Android Gradle test fixture (`tests/fixtures/sample_android_gradle_project/`).
 
 ---
 
@@ -70,9 +70,10 @@ A simple, local, cross-platform application code-protection CLI for developers t
 
 | Platform | Target Binaries / Formats | Primary Protection Methods | Verification Method |
 |:---|:---|:---|:---|
-| **Android** (v1) | APK, AAB | R8/ProGuard shrinking, Smali string encryption, resource obfuscation, zipalign, apksigner | Headless JADX decompiler audit, string table scan, signature check |
-| **iOS** (v2) | IPA, Mach-O, dSYM | Xcode CLI symbol stripping (`strip -x`, `dsymutil`), Swift-Shield symbol renaming, codesign validation | `otool` / `strings` symbol table audit, `codesign --verify --deep` |
-| **Windows** (v2) | .NET Assemblies, Native PE | Obfuscar (.NET symbol/string obfuscation), native symbol stripping, AV heuristic safety scan | `dumpbin` / `ildasm` inspection, section entropy scan |
+| **Android** (v1 MVP) | Android Gradle Projects (`gradlew` + AGP) | R8 shrinking & obfuscation rules applied strictly in isolated staging, built via AGP | Identifier renaming ratio (heuristic), string pool scan (heuristic), signature validity (verified), zip alignment (verified), structural decompilation (informational) |
+| **Android (Unsupported in MVP)** | Arbitrary precompiled APKs | *Unsupported* — standalone R8 on arbitrary APKs without full platform/resource classpath causes runtime failures. Treated as unsupported until a validated post-compile engine is added. | N/A |
+| **iOS** (v2) | Xcode Projects / Mach-O | Xcode CLI symbol stripping (`strip -x`, `dsymutil`), Swift-Shield symbol renaming, codesign validation | `otool` / `strings` symbol table audit, `codesign --verify --deep` |
+| **Windows** (v2) | .NET Solutions, Native PE | Obfuscar (.NET symbol/string obfuscation), native symbol stripping, section entropy check | `dumpbin` / `ildasm` inspection, section entropy scan |
 
 ---
 
@@ -80,11 +81,26 @@ A simple, local, cross-platform application code-protection CLI for developers t
 
 ### Testing Requirements
 - Unit test suite (`pytest`) with >=85% code coverage for core orchestration.
-- Integration tests run against **disposable sample projects / test fixtures only** — never against live production developer code.
+- Integration tests run against **disposable sample projects / test fixtures only** (`tests/fixtures/sample_android_gradle_project/`) — never against live production developer code.
 - Verification tests must assert input files remain bit-for-bit identical (SHA-256 unchanged before and after protection).
 
+### Verification Evidence & Precision Invariants
+- **No Composite Score**: Never compute or report an opaque "resistance score" (e.g. 85/100).
+- **Precise Evidentiary Claims**:
+  - Identifier renaming ratio is *evidence of obfuscation*, not proof that reverse engineering is impossible.
+  - String scanning *detects suspicious patterns* but cannot guarantee that no secrets exist.
+  - Signature verification establishes *validity under signature rules*; it does not prove the application is secure.
+  - Structural decompilation check is *informational* (confirms bytecode validity), not a measure of obfuscation strength.
+- Every check explicitly reports what it proves, what it does not prove, and its status: `VERIFIED`, `HEURISTIC`, `INFORMATIONAL`, `FAILED`, or `UNSUPPORTED`.
+
+### Safety, Credentials & Workspace Invariants
+- **Sensitive File Exclusion**: Staging copies strictly exclude `.git/`, `build/`, `.gradle/`, `*.jks`, `*.keystore`, `local.properties`, and `*.env*`.
+- **No Automatic Production Signing**: Signing is disabled by default; production signing requires explicit confirmation.
+- **No Overwriting Artifacts**: Existing destination files are never overwritten without explicit `--overwrite` or `overwrite_existing: true`.
+- **Zero Logged Credentials**: Passwords referenced exclusively via environment variable names; never passed in CLI flags or printed in reports.
+
 ### Known Limitations
-- **Android**: Google Play App Signing requires bytecode protection before `.aab` bundling. Reflection requires explicit keep-rules.
+- **Android**: Arbitrary precompiled APK input is unsupported for R8; requires supported Android Gradle project. Reflection requires explicit keep-rules.
 - **iOS**: Apple App Store Guideline 2.5.2 & W^X memory restrictions strictly forbid binary runtime packers. iOS protection requires a macOS host with Xcode CLI tools.
 - **Windows**: Runtime PE packers (e.g. UPX) trigger false-positive malware detections in Windows Defender; protection must focus on symbol stripping and .NET metadata.
 - **Fundamental Law**: Client-side software executed on an attacker's hardware cannot be made 100% immune to reverse engineering.
@@ -95,12 +111,11 @@ A simple, local, cross-platform application code-protection CLI for developers t
 
 | Tool | License | Role | Integration Boundary |
 |:---|:---|:---|:---|
-| **R8 / ProGuard** | BSD-3-Clause / Apache 2.0 | Android bytecode shrinking & renaming | CLI subprocess invocation / build-tools |
-| **Apktool** | Apache 2.0 | APK resource extraction & rebuilding | Subprocess CLI (`apktool.jar`) |
-| **JADX** | Apache 2.0 | Android automated verification decompiler | Headless CLI subprocess (`jadx`) |
-| **Obfuscapk** | GPLv3 | Reference/optional smali transforms | Loose CLI subprocess only (never imported or linked) |
-| **Obfuscar** | MIT | Windows .NET assembly obfuscation | Subprocess CLI |
-| **Apple Xcode CLI** | Proprietary (macOS) | iOS symbol stripping & signing (`strip`, `codesign`) | Native macOS subprocess commands |
+| **Gradle / AGP / R8** | Apache 2.0 / BSD-3-Clause | Android build & R8 shrinking/obfuscation | Invocations via project's `gradlew` inside staging sandbox |
+| **Android Build-Tools** | Apache 2.0 | Alignment & signing (`zipalign`, `apksigner`) | Subprocess CLI invocations |
+| **JADX / Baksmali** | Apache 2.0 / BSD-style | Informational decompilation verification | Headless CLI subprocess |
+| **Obfuscar** | MIT | Windows .NET assembly obfuscation (Phase 6) | Subprocess CLI |
+| **Apple Xcode CLI** | Proprietary (macOS) | iOS symbol stripping & signing (`strip`, `codesign`) (Phase 5) | Native macOS subprocess commands |
 
 ---
 
@@ -132,6 +147,8 @@ After completing EVERY task, planning phase, code change, or implementation prom
 - Require **explicit approval** before destructive actions or major architectural changes.
 
 ### Mistakes to Avoid Repeating
+- Do not claim arbitrary precompiled APKs can be reliably obfuscated using standalone R8; use supported Android Gradle projects.
 - Do not attempt in-memory dynamic anti-tampering/hook evasion without a source-level SDK; black-box injection breaks apps and causes App Store rejections.
 - Do not use UPX or runtime PE packers on Windows; they trigger AV false positives.
+- Do not compute or report a composite "resistance score"; report objective counts and precise evidence classifications.
 - Do not vendor or statically import GPL code into the permissive core.

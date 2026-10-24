@@ -55,36 +55,38 @@ Plans:
 ---
 
 ### Phase 3: Core Python CLI Foundation, Workspace Isolation & Test Harness
-**Goal**: Build the extensible Python CLI framework, isolated workspace staging manager, and automated testing foundation.  
+**Goal**: Build the extensible Python CLI framework, isolated workspace staging manager, disposable Android Gradle test fixture, and automated testing foundation.  
 **Depends on**: Phase 2  
-**Requirements**: CLI-01, CLI-02, CLI-03, ISO-01, ISO-02, ISO-03  
+**Requirements**: CLI-01, CLI-02, CLI-03, ISO-01, ISO-02, ISO-03, GOV-01, GOV-02, GOV-04  
 **Success Criteria**:
   1. Running `appshield --help`, `appshield doctor`, and `appshield info` succeeds across Windows, macOS, and Linux.
-  2. Workspace isolation verified: staging directories are created in temp/cache paths, source files are strictly read-only, and original files remain bit-for-bit identical after execution.
-  3. Clean separation of artifacts: protected outputs and verification logs write exclusively to the designated destination directory.
-  4. Complete unit test harness passing with >85% code coverage for core orchestration.  
-**Plans**: 2 plans (03-01: CLI shell & config parser, 03-02: Isolated workspace & sandbox manager)
+  2. Workspace isolation verified: staging directories created in temp paths with sensitive file exclusions (`.git`, `build`, `*.jks`, `local.properties`), source files strictly read-only and verified bit-for-bit identical before and after run.
+  3. Clean separation of artifacts: protected outputs written strictly to distinct output folder; existing outputs never overwritten without explicit flag.
+  4. Disposable Android Gradle project fixture (`tests/fixtures/sample_android_gradle_project/`) constructed for safe, repeatable testing.
+  5. Complete unit test harness passing with >85% code coverage for core orchestration.  
+**Plans**: 2 plans (03-01: CLI shell & config parser, 03-02: Isolated workspace sandbox manager & test fixture harness)
 
 Plans:
 - [ ] 03-01: CLI scaffolding, subcommand registration, and config loader.
-- [ ] 03-02: Workspace sandbox manager, input immutability guard, and test suite.
+- [ ] 03-02: Workspace sandbox manager, input immutability guard, test fixture, and test suite.
 
 ---
 
 ### Phase 4: Android Protection Pipeline & Verification Engine
-**Goal**: Deliver a functional, real-world Android hardening pipeline with automated decompilation and symbol verification.  
+**Goal**: Deliver a functional, reproducible Android hardening pipeline for Android Gradle projects with automated objective verification.  
 **Depends on**: Phase 3  
 **Requirements**: AND-01, AND-02, AND-03, VER-01, VER-02, VER-03  
 **Success Criteria**:
-  1. `appshield doctor` verifies presence of Android SDK tools (`java`, `apksigner`, `zipalign`) with actionable remediation tips if missing.
-  2. `appshield protect --platform android` successfully processes an input APK/AAB through multi-layer obfuscation (class/method renaming, string encryption, resource shrinking) in isolated staging.
-  3. Hardened APK is aligned and signed using a local keystore without leaking keystore passwords in logs.
-  4. `appshield verify` executes an automated decompilation audit (headless analysis) and generates a quantitative resistance score and honest residual risk report.  
-**Plans**: 2 plans (04-01: Android protection orchestrator & signing, 04-02: Automated verification & security audit reporter)
+  1. `appshield doctor` verifies presence of Android build prerequisites (`java`, `gradlew`, Android SDK tools).
+  2. `appshield protect --platform android` successfully processes an Android Gradle project via isolated staging, injecting R8 rules, invoking AGP build, and saving the protected APK to `dist/protected/`. Standalone precompiled APKs treated as unsupported.
+  3. Output overwrite guard prevents accidental destruction of existing destination artifacts.
+  4. Signing workflow supports environment-variable-masked keystores without leaking credentials in logs or process tables; production signing requires explicit confirmation.
+  5. `appshield verify` executes objective empirical checks (renaming ratio, string scan, signature validity, zip alignment) and outputs `audit_report.json` with precise evidentiary classifications (no composite score).  
+**Plans**: 2 plans (04-01: Android Gradle pipeline adapter & signing, 04-02: Objective verification & honest report generator)
 
 Plans:
-- [ ] 04-01: Android pipeline adapter, toolchain discovery, and signing workflow.
-- [ ] 04-02: Headless decompilation verification, string table audit, and honest report generator.
+- [ ] 04-01: Android Gradle pipeline adapter, toolchain discovery, and signing workflow.
+- [ ] 04-02: Objective verification engine, string pool scanner, and honest report generator.
 
 ---
 

@@ -15,28 +15,28 @@ Requirements committed for v1 release (Phases 1–4).
 
 ### Isolation & Workspace Safety
 
-- [ ] **ISO-01**: Source tree immutability — original source files and input binaries are treated as strictly read-only and never modified in place.
-- [ ] **ISO-02**: Staged build execution — all intermediate transformation and decompilation steps take place in isolated temporary staging workspaces.
-- [ ] **ISO-03**: Clean artifact output — hardened outputs are written to a designated, distinct output folder (e.g., `dist/protected/`) alongside a verification audit report.
+- [ ] **ISO-01**: Source tree immutability — original source files and build configurations are treated as strictly read-only and never modified in place.
+- [ ] **ISO-02**: Staged build execution — all intermediate transformation, R8 rule injection, and build steps take place in isolated temporary staging workspaces with sensitive file exclusions (`.git`, `build`, `*.jks`, `local.properties`, `.env`).
+- [ ] **ISO-03**: Clean artifact output & overwrite guard — hardened outputs are written to a designated, distinct output folder (e.g., `dist/protected/`); existing artifacts are never overwritten without explicit user confirmation.
 
 ### Android Protection Engine
 
 - [ ] **AND-01**: `doctor` subcommand checks for local Android SDK prerequisites (`java`, `apksigner`, `zipalign`, Android build-tools) and reports missing dependencies cleanly.
-- [ ] **AND-02**: Engine orchestrates compatible existing protection tools (R8/ProGuard configuration generation, APK resource and Dex bytecode protection) without inventing a custom bytecode compiler.
-- [ ] **AND-03**: Engine supports safe local APK signing and alignment using local keystores without persisting or leaking credentials in logs or staging files.
+- [ ] **AND-02**: Engine orchestrates protection via supported Android Gradle Plugin (AGP) and R8 build toolchain on Android Gradle projects; arbitrary precompiled APK input is unsupported in MVP.
+- [ ] **AND-03**: Engine supports safe local APK signing and alignment; credentials read strictly via environment variable names; no automatic production signing.
 
 ### Verification & Honest Reporting
 
-- [ ] **VER-01**: Post-build automated verification executes static analysis (symbol obfuscation check, string table encryption check, resource integrity).
-- [ ] **VER-02**: Verification engine runs an automated decompilation audit (e.g. headless JADX / Dex disassembler check) and scores reverse-engineering resistance.
-- [ ] **VER-03**: Report generator outputs an honest security summary that clearly explains residual risks and explicitly disclaims that reverse engineering is impossible.
+- [ ] **VER-01**: Post-build automated verification executes objective empirical checks (identifier renaming ratio, string pool inspection, signature integrity, zip alignment).
+- [ ] **VER-02**: Precise evidentiary classification: identifier renaming is evidence of obfuscation (not impossible reverse engineering), string scans detect patterns without absolute guarantees, signature checks prove signature validity (not app safety), and decompilation checks are informational.
+- [ ] **VER-03**: Report generator outputs objective metrics and explicit evidentiary definitions without any composite security scores.
 
 ### Permanent Review & Governance
 
 - [ ] **GOV-01**: Automated test execution harness (`pytest`) integrated and enforced across every task, plan, and code change.
 - [ ] **GOV-02**: Execution of the mandatory 10-step full review process (tests, code review, static analysis/linting/typing, security scans, secret/file safety checks, complexity checks, acceptance checks, honest status reporting, MEMORY.md sync, change summary).
 - [ ] **GOV-03**: Zero-credential leakage assurance — strict masking and prevention of private signing keys, keystore passwords, or sensitive application code appearing in logs, temp files, or version control.
-- [ ] **GOV-04**: Disposable sample test policy — all destructive or mutating operations run strictly on disposable fixtures; developer source files remain untouched.
+- [ ] **GOV-04**: Disposable sample test policy — all destructive or mutating operations run strictly on disposable fixtures (`tests/fixtures/sample_android_gradle_project/`); developer source files remain untouched.
 
 ## v2 Requirements
 
@@ -63,9 +63,10 @@ Explicitly excluded to protect project safety, focus, and integrity.
 
 | Feature | Reason |
 |---------|--------|
+| Arbitrary Precompiled APK Obfuscation via Standalone R8 | R8 requires full compile-time classpath, platform jars, and resource ID tables available in Gradle projects; arbitrary APKs without build context are unsupported in MVP. |
 | Custom Bytecode / Mach-O / PE Obfuscation Compiler | High maintenance burden, fragile semantics, and high probability of introducing runtime bugs; wrapping mature tools is significantly more reliable. |
 | Remote / Cloud Telemetry or SaaS Processing | Breaches Core Requirement #6; source code and credentials must never leave the developer's workstation. |
-| Unbreakable Protection Claims / DRM Guarantee | Technically impossible; client-side binaries running on user-controlled hardware can always be analyzed given enough time, skill, and tooling. |
+| Unbreakable Protection Claims / Composite Security Scores | Technically impossible; client-side binaries running on user-controlled hardware can always be analyzed given enough time, skill, and tooling. |
 | In-Memory Runtime Hook Evasion without Source SDK | Injecting fragile runtime memory hooks (e.g. anti-Frida/Xposed) into black-box APKs/Mach-O binaries causes crashes and store rejections; best handled by dedicated in-app SDKs if chosen by the developer. |
 
 ## Traceability

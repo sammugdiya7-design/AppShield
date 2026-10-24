@@ -43,10 +43,10 @@ Progress: [██░░░░░░░░] 22%
 - [Phase 1]: Verification-driven architecture (automated JADX/symbol audit to generate empirical resistance reports).
 - [Phase 1]: Strict honest reporting doctrine (no false claims of "unbreakable" protection).
 - [Phase 1]: Established root `MEMORY.md` and mandatory 10-step full-review gate across all tasks.
-- [Phase 1]: Strict protection of original files, zero credential exposure, and disposable test fixtures only.
-- [Phase 2]: Banned subjective "resistance scores"; defined concrete, objective checks (CHK-SYM-01, CHK-STR-01, CHK-SIG-01, CHK-ALN-01, CHK-DEC-01).
-- [Phase 2]: Android MVP centered around standard Google R8 CLI toolchain, 4-byte zipalign, and environment-variable-masked apksigner.
-- [Phase 2]: Defined `tests/fixtures/sample_android/mini_app.apk` disposable test fixture for Phase 3 and Phase 4 testing.
+- [Phase 2]: Banned subjective "resistance scores"; defined concrete, objective checks (CHK-SYM-01, CHK-STR-01, CHK-SIG-01, CHK-ALN-01, CHK-DEC-01) with precise evidentiary classifications (verified, heuristic, informational, failed, unsupported).
+- [Phase 2]: Android MVP centered around supported Android Gradle projects (AGP + gradlew + R8); arbitrary precompiled APK input explicitly marked unsupported.
+- [Phase 2]: Defined `tests/fixtures/sample_android_gradle_project/` as minimal disposable Android Gradle fixture with deliberately identifiable symbols and strings.
+- [Phase 2]: Added sensitive file exclusion filters (.git, build, *.jks, local.properties, .env), output overwrite guards, and non-production signing confirmation.
 
 ### Pending Todos
 

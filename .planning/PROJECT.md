@@ -17,16 +17,17 @@ The developer's original source code and signing credentials remain completely u
 ### Active
 
 - [ ] **CLI-01**: Python-based cross-platform CLI supporting modular commands (`protect`, `verify`, `info`, `doctor`).
-- [ ] **ISO-01**: Source tree immutability guarantee — original source files are opened read-only and never modified in place.
-- [ ] **ISO-02**: Staged build execution in isolated temporary workspaces with dedicated output artifact directories.
-- [ ] **ENG-01**: Integration of verified Android protection workflows (leveraging R8/ProGuard, APK/AAB decompilation and repacking tools, and Dex string/resource obfuscation).
-- [ ] **VER-01**: Automated post-protection verification (symbol stripping validation, decompilation resistance audit, string table inspection, signature integrity check).
-- [ ] **VER-02**: Honest reporting engine — outputs quantifiable protection metrics without claiming reverse engineering is impossible.
+- [ ] **ISO-01**: Source tree immutability guarantee — original source files and build configurations are opened read-only and never modified in place.
+- [ ] **ISO-02**: Staged build execution in isolated temporary workspaces with sensitive file exclusions and dedicated output artifact directories.
+- [ ] **ENG-01**: Integration of verified Android protection workflows (leveraging Android Gradle Plugin and R8 toolchain on supported Android Gradle projects).
+- [ ] **VER-01**: Automated post-protection verification (symbol renaming ratio, string table inspection, signature integrity, and zip alignment).
+- [ ] **VER-02**: Honest reporting engine — outputs objective evidence metrics without subjective composite scores and without claiming reverse engineering is impossible.
 - [ ] **SEC-01**: Zero remote network transmission — no source code, telemetry, or signing keys/keystores ever leave the host machine.
 - [ ] **ENG-02**: Pluggable architecture ready for iOS (Phase 5) and Windows (Phase 6) pipelines.
 
 ### Out of Scope
 
+- **Arbitrary Precompiled APK-Only Obfuscation via Standalone R8**: Running R8 directly on arbitrary precompiled APKs without full platform dependencies, compile classpath, and resource ID tables is technically brittle and unsupported in MVP. Android protection requires an Android Gradle project.
 - **Custom Obfuscation Engine**: AppShield will NOT write a proprietary Dex, Mach-O, or PE compiler/obfuscation core from scratch; it orchestrates battle-tested, compatible existing tools.
 - **Remote / Cloud Protection Service**: No cloud backend, web dashboard, or SaaS telemetry server.
 - **Unbreakable DRM / Anti-Tamper Claims**: Defeating all reverse engineering indefinitely is technically impossible on client devices where the adversary possesses local physical execution control. AppShield raises attack cost/complexity, but will never claim absolute immunity.
@@ -57,8 +58,9 @@ AppShield fills the gap by providing an open, developer-centric, transparent CLI
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Orchestrator Architecture over Custom Obfuscator | Building a compiler backend is prone to semantic breakage and maintenance overhead; existing tools (R8, ProGuard, Obfuscar, Swift tools) are mature and robust. | — Pending |
-| Ephemeral Build Sandbox | Copying inputs into an isolated `.appshield_build/` or temp sandbox prevents accidental corruption of developer source trees and git repos. | — Pending |
-| Verification-First Reporting | Running automated decompilation checks (e.g. JADX or symbol scrapers) provides empirical proof of protection rather than security theater. | — Pending |
+| Android Gradle Project as Primary MVP Input | Running R8 via AGP on complete Gradle projects ensures full classpath, resource bindings, and platform compatibility. Standalone APK input is explicitly unsupported. | ✓ Good |
+| Ephemeral Build Sandbox with Exclusion Filters | Copying inputs into an isolated `.appshield_staging/` sandbox while filtering `.git`, `build`, and keystores prevents project corruption and credential leaks. | — Pending |
+| Objective Evidence Matrix over Composite Score | Avoids misleading "security scores"; reports concrete metrics, what each check proves, what it does not prove, and evidence status (`verified`/`heuristic`/`informational`). | ✓ Good |
 | Honest Security Doctrine | Explicitly stating the limits of obfuscation builds professional credibility and aligns with OWASP MASVS recommendations. | — Pending |
 | Root MEMORY.md & Mandatory 10-Step Review Gate | Ensures institutional memory, continuous regression detection, zero credential leakage, and strict adherence to project invariants across all sessions. | ✓ Good |
 

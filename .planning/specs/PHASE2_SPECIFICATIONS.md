@@ -1,15 +1,15 @@
-# Phase 2 Specifications: Architecture Contracts, Schemas & MVP Workflows
+# Phase 2 Specifications: Architecture Contracts, Schemas & MVP Workflows (Revised)
 
 **Project:** AppShield  
 **Phase:** 2 (Specifications, Threat Model, Architecture & Acceptance Criteria)  
 **Date:** 2026-10-24  
-**Status:** Complete Specification Draft for User Review  
+**Status:** Revised Specification Draft for User Review  
 
 ---
 
 ## 1. Minimal Component Architecture & Contract Design
 
-AppShield avoids unnecessary layers, enterprise dependency injection frameworks, and micro-abstractions. It is organized into 4 lean Python modules:
+AppShield maintains a lean 4-module Python architecture without unnecessary abstraction layers:
 
 ```
 appshield/
@@ -18,7 +18,7 @@ appshield/
 ├── sandbox.py         # Workspace isolation manager (ephemeral staging, read-only input guard)
 ├── adapters/          # Pluggable platform execution engines
 │   ├── base.py        # Abstract Base Class: PlatformAdapter
-│   ├── android.py     # Android R8 & packaging adapter (MVP)
+│   ├── android_gradle.py # Android Gradle Plugin (AGP) + R8 build adapter (MVP)
 │   ├── ios.py         # iOS stub (Future integration: Phase 5)
 │   └── windows.py     # Windows stub (Future integration: Phase 6)
 └── verification/      # Verification & audit engine
@@ -27,57 +27,60 @@ appshield/
     └── reporter.py    # JSON & Markdown report generator
 ```
 
-### Execution Flow
-1. **Invocation**: User executes `appshield protect --config appshield.yaml` or passes flags.
-2. **Config & Environment Validation**: `config.py` loads and validates the configuration. `doctor` preflight checks verify tool availability.
-3. **Sandbox Initialization**: `sandbox.py` hashes the original input, mounts/copies it into `.appshield_staging/<build_id>/`, and locks the original source to read-only.
-4. **Adapter Execution**: The appropriate `PlatformAdapter` transforms bytecode/binaries strictly within the sandbox.
-5. **Signing**: Artifact is aligned and locally signed using credentials provided via masked environment variables.
-6. **Verification Audit**: `VerificationEngine` analyzes the protected artifact against objective empirical criteria.
-7. **Artifact Delivery**: Validated artifacts are copied to `dist/protected/`, along with `audit_report.json` and `audit_report.md`.
-8. **Teardown**: The staging sandbox is wiped immediately.
+### Supported Input Scope (MVP vs Unsupported)
+- **Supported MVP Input**: Android application projects using **Gradle and the Android Gradle Plugin (AGP)** with Gradle wrapper (`gradlew`).
+- **Unsupported in MVP**: Arbitrary precompiled APK-only input. Standalone APK obfuscation using raw R8 outside a project build tree requires complete external classpath context, Android platform libraries, and resource ID tables that cannot be reliably synthesized in a black-box manner without risk of runtime crashes. Standalone APK input is explicitly marked **unsupported** until a separate, technically validated protection engine (e.g. specialized Smali AST rewriter) is integrated.
 
 ---
 
 ## 2. CLI Configuration Schema (`appshield.yaml` / `.appshield.json`)
 
-The configuration file is designed to be minimal, deterministic, and self-documenting.
+The configuration file is minimal, deterministic, and enforces safety boundaries.
 
-### 2.1. YAML Example (`appshield.yaml`)
+### 2.1. YAML Specification (`appshield.yaml`)
 
 ```yaml
 version: "1.0"
-project_name: "my_android_app"
+project_name: "sample_gradle_app"
 platform: "android"
 
 input:
-  # Path to original APK, AAB, or compiled DEX/JAR
-  path: "./samples/app-release-unsigned.apk"
-  # Enforce read-only verification (default: true)
+  # Path to root of the Android Gradle project (Strictly read-only)
+  project_dir: "./samples/android_sample_project"
+  # Enforce bit-for-bit source immutability verification (default: true)
   verify_source_immutability: true
+  # Patterns excluded when creating the isolated staging copy
+  exclude_patterns:
+    - ".git/**"
+    - "build/**"
+    - "**/build/**"
+    - ".gradle/**"
+    - "**/*.jks"
+    - "**/*.keystore"
+    - "local.properties"
+    - "**/*.env*"
+    - "**/google-services.json"
 
 output:
   # Destination directory for hardened artifacts (must be distinct from source)
   dir: "./dist/protected"
-  clean_before_run: true
+  # Require explicit opt-in before overwriting existing files (default: false)
+  overwrite_existing: false
 
 android:
-  # Mode: 'r8' (default) or 'proguard'
-  engine: "r8"
-  min_sdk: 21
-  rules:
-    - "./proguard-rules.pro"
-  # Android package options
-  obfuscate_classes: true
-  obfuscate_strings: true
-  shrink_resources: false
+  project_type: "gradle"
+  build_variant: "release"
+  gradle_task: "assembleRelease"
+  # Additional R8 rules to inject strictly into the isolated staging copy
+  r8_rules_file: "./appshield-r8-rules.pro"
   
-  # Signing configuration (Zero plaintext password rule)
+  # Signing configuration (No automatic production signing)
   signing:
-    enabled: true
-    keystore_path: "./sample_keystore.jks"
-    key_alias: "app_release_key"
-    # Name of the environment variables storing passwords (NEVER plain passwords)
+    enabled: false  # Must be explicitly set to true by user
+    is_production: false # Production signing requires explicit configuration
+    keystore_path: "./sample_test_keystore.jks"
+    key_alias: "test_key"
+    # Environment variable names for passwords (NEVER plain passwords)
     keystore_password_env: "APPSHIELD_KS_PASS"
     key_password_env: "APPSHIELD_KEY_PASS"
 
@@ -89,6 +92,7 @@ verification:
     - string_pool_inspection
     - signature_integrity
     - package_alignment
+    - structural_decompilation_info
 ```
 
 ### 2.2. JSON Schema Definition
@@ -100,24 +104,19 @@ verification:
   "type": "object",
   "required": ["version", "project_name", "platform", "input", "output"],
   "properties": {
-    "version": {
-      "type": "string",
-      "enum": ["1.0"]
-    },
-    "project_name": {
-      "type": "string",
-      "pattern": "^[a-zA-Z0-9_-]+$"
-    },
-    "platform": {
-      "type": "string",
-      "enum": ["android", "ios", "windows"]
-    },
+    "version": { "type": "string", "enum": ["1.0"] },
+    "project_name": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
+    "platform": { "type": "string", "enum": ["android", "ios", "windows"] },
     "input": {
       "type": "object",
-      "required": ["path"],
+      "required": ["project_dir"],
       "properties": {
-        "path": { "type": "string" },
-        "verify_source_immutability": { "type": "boolean", "default": true }
+        "project_dir": { "type": "string" },
+        "verify_source_immutability": { "type": "boolean", "default": true },
+        "exclude_patterns": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
       }
     },
     "output": {
@@ -125,22 +124,21 @@ verification:
       "required": ["dir"],
       "properties": {
         "dir": { "type": "string", "default": "./dist/protected" },
-        "clean_before_run": { "type": "boolean", "default": true }
+        "overwrite_existing": { "type": "boolean", "default": false }
       }
     },
     "android": {
       "type": "object",
       "properties": {
-        "engine": { "type": "string", "enum": ["r8", "proguard"], "default": "r8" },
-        "min_sdk": { "type": "integer", "minimum": 14, "default": 21 },
-        "rules": { "type": "array", "items": { "type": "string" } },
-        "obfuscate_classes": { "type": "boolean", "default": true },
-        "obfuscate_strings": { "type": "boolean", "default": true },
-        "shrink_resources": { "type": "boolean", "default": false },
+        "project_type": { "type": "string", "enum": ["gradle"], "default": "gradle" },
+        "build_variant": { "type": "string", "default": "release" },
+        "gradle_task": { "type": "string", "default": "assembleRelease" },
+        "r8_rules_file": { "type": "string" },
         "signing": {
           "type": "object",
           "properties": {
             "enabled": { "type": "boolean", "default": false },
+            "is_production": { "type": "boolean", "default": false },
             "keystore_path": { "type": "string" },
             "key_alias": { "type": "string" },
             "keystore_password_env": { "type": "string" },
@@ -154,10 +152,7 @@ verification:
       "properties": {
         "enabled": { "type": "boolean", "default": true },
         "fail_on_check_failure": { "type": "boolean", "default": false },
-        "checks": {
-          "type": "array",
-          "items": { "type": "string" }
-        }
+        "checks": { "type": "array", "items": { "type": "string" } }
       }
     }
   }
@@ -168,13 +163,13 @@ verification:
 
 ## 3. Interface Specifications (`PlatformAdapter` & `VerificationEngine`)
 
-The interfaces are defined as standard Python Abstract Base Classes (`abc.ABC`) with strict type hinting, avoiding heavyweight runtime dependencies.
+Standard Python Abstract Base Classes (`abc.ABC`) defining platform hooks:
 
 ### 3.1. `PlatformAdapter` Interface
 
 ```python
 """
-Abstract interface contract for platform-specific protection pipelines.
+Abstract interface contract for platform-specific build and protection pipelines.
 Defined in appshield/adapters/base.py
 """
 from abc import ABC, abstractmethod
@@ -199,7 +194,7 @@ class ProtectionResult:
     metadata: Dict[str, Any] = None
 
 class PlatformAdapter(ABC):
-    """Base interface for all platform-specific protection adapters."""
+    """Base interface for all platform-specific build and protection adapters."""
 
     @property
     @abstractmethod
@@ -210,34 +205,38 @@ class PlatformAdapter(ABC):
     @abstractmethod
     def check_prerequisites(self) -> List[PrerequisiteCheck]:
         """
-        Inspects the host environment for required CLI binaries and compilers.
+        Inspects the host environment for required CLI binaries, SDKs, and build tools.
         Used by the `appshield doctor` subcommand and preflight validation.
         """
         pass
 
     @abstractmethod
-    def protect(
+    def stage_and_protect(
         self,
-        staged_input_path: Path,
+        source_project_dir: Path,
         sandbox_dir: Path,
         config: Dict[str, Any]
     ) -> ProtectionResult:
         """
-        Executes protection passes strictly within the provided staging sandbox.
-        Must NEVER touch the original input path outside the sandbox.
+        1. Copies source_project_dir into sandbox_dir excluding sensitive files.
+        2. Applies necessary R8 configurations strictly inside sandbox_dir.
+        3. Executes the build toolchain (e.g. Gradle assembleRelease) inside sandbox_dir.
+        4. Extracts built APK artifact to a staging output location.
+        Original source_project_dir is NEVER modified.
         """
         pass
 
     @abstractmethod
-    def sign(
+    def sign_if_configured(
         self,
         artifact_path: Path,
         sandbox_dir: Path,
         signing_config: Dict[str, Any]
     ) -> Path:
         """
-        Performs local alignment and signing using environment-provided credentials.
-        Returns the path to the signed artifact.
+        Performs local alignment and signing if explicitly enabled and configured.
+        Requires non-production confirmation unless explicitly set.
+        Returns the path to the signed (or unchanged) artifact.
         """
         pass
 ```
@@ -252,15 +251,20 @@ Defined in appshield/verification/base.py
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Literal, Any
+from typing import Dict, List, Literal, Optional, Any
+
+OutcomeType = Literal["VERIFIED", "HEURISTIC", "INFORMATIONAL", "FAILED", "UNSUPPORTED"]
 
 @dataclass(frozen=True)
-class CheckResult:
+class ObjectiveCheckResult:
     check_id: str
     name: str
-    category: str  # e.g., 'symbols', 'strings', 'signature', 'integrity'
+    category: str
+    outcome: OutcomeType
     status: Literal["PASS", "FAIL", "SKIPPED", "INFO"]
-    observed_metric: str  # e.g., "94.2% classes renamed", "0 plaintext keys found"
+    what_it_proves: str
+    what_it_does_not_prove: str
+    observed_metric: str
     details: Dict[str, Any]
     recommendation: Optional[str] = None
 
@@ -270,13 +274,12 @@ class VerificationReport:
     artifact_name: str
     artifact_sha256: str
     file_size_bytes: int
-    checks: List[CheckResult]
-    passed_count: int
-    failed_count: int
+    checks: List[ObjectiveCheckResult]
+    summary: Dict[str, int]
     disclaimer: str
 
 class VerificationEngine(ABC):
-    """Base interface for auditing hardened artifacts."""
+    """Base interface for executing objective empirical checks against hardened artifacts."""
 
     @abstractmethod
     def run_all_checks(
@@ -284,256 +287,261 @@ class VerificationEngine(ABC):
         artifact_path: Path,
         config: Dict[str, Any]
     ) -> VerificationReport:
-        """
-        Executes configured objective checks against the output binary.
-        """
+        """Executes configured objective checks and generates a structured report."""
         pass
 ```
 
 ---
 
-## 4. Objective Verification & Reporting Strategy
+## 4. Precise Verification Claims & Objective Evidence Matrix
 
-### 4.1. The "No Subjective Resistance Score" Rule
-Per project objectives: **AppShield does NOT compute a composite, arbitrary "Resistance Score" (e.g. 87/100).** 
+AppShield strictly adheres to honest reporting:
+- **No composite security score is computed or presented.**
+- Every check explicitly documents what it proves, what it does not prove, and its verification classification.
 
-Scoring models create a false sense of security and mislead developers into believing software security can be reduced to an opaque grade. Instead, AppShield executes **verifiable, objective empirical checks** and reports concrete measurements.
+### 4.1. Objective Evidence Matrix
 
-### 4.2. Concrete Objective Checks
-
-| Check ID | Check Name | Target Artifact | Empirical Method | Observable Metric Reported |
+| Check ID | Check Name | Classification | What It Proves | What It Does NOT Prove |
 |:---|:---|:---|:---|:---|
-| **CHK-SYM-01** | **Class & Method Renaming Ratio** | DEX / Smali | Inspect Dex class definitions; count total identifiers vs identifiers shortened to `a`, `b`, etc. | Total classes: `N`, Renamed: `M`, Ratio: `M/N * 100%`, Preserved list (e.g. entry points). |
-| **CHK-STR-01** | **High-Entropy & Secret String Scan** | DEX string pool | Extract literal string constants; pattern-match common secrets (`AKIA...`, `api_key=`, URLs); calculate Shannon entropy. | Plaintext matches found: `0`, High-entropy strings encrypted: `YES/NO`. |
-| **CHK-SIG-01** | **Cryptographic Signature Verification** | APK / AAB | Run `apksigner verify --verbose` | Verified schemes: `v1, v2, v3`, Signer Common Name, Validity period. |
-| **CHK-ALN-01** | **4-Byte Page Alignment Check** | APK | Run `zipalign -c -v 4` | Verification status: `ALIGNED (PASS)` or `UNALIGNED (FAIL)`. |
-| **CHK-DEC-01** | **Decompiler Structural Integrity** | APK / DEX | Run headless JADX / Baksmali disassemble pass | Decompilation status: `SUCCEEDED (Valid bytecode)`. Disassembled classes match DEX table. |
+| **CHK-SYM-01** | **Identifier Renaming Ratio** | `HEURISTIC` (Evidence) | Proves that class/method/field symbol names were altered from their original readable names to short, minified tokens in the DEX symbol table per R8 rules. | Does **NOT** prove that reverse engineering is impossible, that logic cannot be deduced from control-flow, or that reflection-safe entry points are protected. |
+| **CHK-STR-01** | **String Constant Pool Scan** | `HEURISTIC` | Proves that scanned literal strings matching known signature patterns (regex for API tokens, URLs, secrets) were not detected in plaintext in the constant pool. | Does **NOT** guarantee that no secrets exist in the binary. Sensitive data can be dynamically reconstructed, split across arrays, or missed by pattern filters. |
+| **CHK-SIG-01** | **Cryptographic Signature Check** | `VERIFIED` | Proves whether the APK contains a cryptographically valid, untampered signature under Android APK Signature Schemes (v1, v2, and/or v3). | Does **NOT** prove the application code is secure, trustworthy, or bug-free. Malware and vulnerable apps can be validly signed. |
+| **CHK-ALN-01** | **Zip Alignment Verification** | `VERIFIED` | Proves that uncompressed resources and shared libraries inside the APK archive start at 4-byte boundaries suitable for Android OS `mmap`. | Pure packaging format compliance check. Provides zero anti-tamper or security guarantee. |
+| **CHK-DEC-01** | **Structural Decompilation Check** | `INFORMATIONAL` | Establishes whether a standard headless decompiler (e.g. JADX or Baksmali) can parse the bytecode without syntax-level Dalvik VM parsing crashes. | Does **NOT** prove obfuscation strength. Kept strictly informational to confirm valid runtime compilation. |
 
-### 4.3. Verification Report Schema (`audit_report.json`)
+### 4.2. Verification Report Schema (`audit_report.json`)
 
 ```json
 {
   "audit_version": "1.0",
-  "project_name": "my_android_app",
-  "generated_at": "2026-10-24T18:00:00Z",
+  "project_name": "sample_gradle_app",
+  "generated_at": "2026-10-24T18:15:00Z",
   "artifact": {
-    "name": "my_android_app-protected.apk",
-    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "size_bytes": 14285712
+    "name": "sample_gradle_app-release-protected.apk",
+    "sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+    "size_bytes": 1845120
   },
   "summary": {
     "total_checks": 5,
-    "passed": 5,
+    "verified_passed": 2,
+    "heuristic_passed": 2,
+    "informational": 1,
     "failed": 0,
-    "skipped": 0
+    "unsupported": 0
   },
   "objective_checks": [
     {
       "check_id": "CHK-SYM-01",
-      "name": "Class Renaming Ratio",
+      "name": "Identifier Renaming Ratio",
       "category": "symbols",
+      "outcome": "HEURISTIC",
       "status": "PASS",
-      "observed_metric": "92.3% of non-entry classes renamed",
+      "what_it_proves": "Evidence that class/method/field symbol names were altered from original names to minified tokens.",
+      "what_it_does_not_prove": "Does not prove that reverse engineering is impossible or that business logic cannot be analyzed.",
+      "observed_metric": "91.4% of eligible non-entry classes renamed (32 of 35 classes)",
       "details": {
-        "total_classes": 52,
-        "renamed_classes": 48,
-        "preserved_classes": ["com.example.app.MainActivity", "com.example.app.App"]
+        "total_classes": 35,
+        "renamed_classes": 32,
+        "preserved_classes": [
+          "com.appshield.sample.MainActivity",
+          "com.appshield.sample.SampleApp"
+        ]
       }
     },
     {
       "check_id": "CHK-STR-01",
-      "name": "String Constant Pool Scan",
+      "name": "String Pool Constant Scan",
       "category": "strings",
+      "outcome": "HEURISTIC",
       "status": "PASS",
-      "observed_metric": "0 exposed secret patterns detected",
+      "what_it_proves": "Known regex signature patterns for API tokens were not detected in plaintext.",
+      "what_it_does_not_prove": "Cannot guarantee that no secrets exist in the application.",
+      "observed_metric": "0 flagged secret patterns detected across 412 string constants",
       "details": {
-        "scanned_string_count": 840,
-        "flagged_literals": []
+        "scanned_strings_count": 412,
+        "flagged_matches": []
       }
     },
     {
       "check_id": "CHK-SIG-01",
       "name": "APK Signature Verification",
       "category": "signature",
+      "outcome": "VERIFIED",
       "status": "PASS",
-      "observed_metric": "v2 and v3 signatures verified valid",
+      "what_it_proves": "Artifact has a valid cryptographic signature under APK Signature Schemes v2 and v3.",
+      "what_it_does_not_prove": "Does not prove the application code is secure or free of vulnerabilities.",
+      "observed_metric": "Signature scheme v2 and v3 verified valid",
       "details": {
         "schemes": ["v2", "v3"],
-        "signer": "CN=Android Release Key, O=AppShield Fixtures"
+        "signer": "CN=Test Key, O=AppShield Fixtures"
       }
     },
     {
       "check_id": "CHK-ALN-01",
       "name": "Zip Alignment Verification",
       "category": "integrity",
+      "outcome": "VERIFIED",
       "status": "PASS",
+      "what_it_proves": "Data boundaries aligned on 4-byte boundaries for memory mapping.",
+      "what_it_does_not_prove": "Provides no security or anti-reverse-engineering guarantee.",
       "observed_metric": "4-byte zip alignment verified",
       "details": { "aligned": true }
     },
     {
       "check_id": "CHK-DEC-01",
-      "name": "Decompiler Bytecode Parsing",
+      "name": "Structural Decompilation Inspection",
       "category": "integrity",
-      "status": "PASS",
-      "observed_metric": "Bytecode successfully parsed without Dalvik VM syntax faults",
-      "details": { "headless_decompiler_exit_code": 0 }
+      "outcome": "INFORMATIONAL",
+      "status": "INFO",
+      "what_it_proves": "Bytecode structure parsed by disassembler without Dalvik format syntax crashes.",
+      "what_it_does_not_prove": "Does not measure obfuscation strength or resistance to decompilation.",
+      "observed_metric": "Headless disassembler parsed DEX structures cleanly",
+      "details": { "parser_exit_code": 0 }
     }
   ],
-  "residual_risks": [
-    "Entry-point classes (Activity/Service) preserve readable names to satisfy AndroidManifest requirements.",
-    "Dynamic in-memory analysis via Frida/Xposed remains possible on rooted target devices."
-  ],
-  "disclaimer": "AppShield protection increases reverse-engineering work factors and halts automated static decompilers. It does not provide absolute protection against a determined adversary with runtime device control."
+  "disclaimer": "All measurements represent empirical evidence from automated static checks. A high renaming ratio or clean string scan increases reverse-engineering work factors, but does NOT prove the binary is impossible to reverse engineer. Reverse engineering of client-side code running on user-controlled devices remains possible."
 }
 ```
 
 ---
 
-## 5. Android MVP: Real, Reproducible R8-Based Workflow
+## 5. Android MVP: Real, Reproducible Android Gradle & R8 Workflow
 
-Rather than inventing a brittle DEX bytecode assembler, the Android MVP orchestrates the standard, official **Google R8** compiler toolchain.
+The Android MVP is built strictly around an **Android project that uses Gradle and the Android Gradle Plugin (AGP)**.
 
-### 5.1. Toolchain Prerequisites
-Discovered via `appshield doctor`:
-1. `java` (Java 11 or 17+ on PATH).
-2. Android SDK `build-tools` (`zipalign`, `apksigner`, `d8`/`r8.jar`).
-3. Standalone `r8.jar` fallback (can be bundled or downloaded once locally by user).
-
-### 5.2. Pipeline Execution Steps
-
+### 5.1. Workflow Architecture
 ```
-[Original APK] ──(read-only)──► Sandbox ──► Unpack APK ──► Extract DEX
-                                                                │
-                                                                ▼
-                                                        Generate R8 Rules
-                                                                │
-                                                                ▼
-                                                        Run R8 CLI
-                                              (Shrinking & Obfuscation)
-                                                                │
-                                                                ▼
-                                                        Updated DEX
-                                                                │
-                                                                ▼
-                                                        Repack APK
-                                                                │
-                                                                ▼
-                                                        zipalign (4-byte)
-                                                                │
-                                                                ▼
-                                                        apksigner (local KS)
-                                                                │
-                                                                ▼
-                                                        Verify (JADX audit)
-                                                                │
-                                                                ▼
-                                                        [dist/protected/]
+[Original Android Project] (STRICTLY READ-ONLY)
+         │
+         ▼  (Exclude .git, build, *.jks, local.properties, .env)
+[Isolated Sandbox: .appshield_staging/<build_uuid>/]
+         │
+         ├──► Inject AppShield R8 rules into staging proguard-rules.pro
+         │
+         ├──► Run ./gradlew assembleRelease (Supported AGP Toolchain)
+         │       └─ AGP invokes R8 compiler with classpath & android.jar
+         │
+         ├──► Output APK generated inside sandbox: app/build/outputs/apk/release/
+         │
+         ├──► Align & Sign (Optional, with masked env vars & non-production guard)
+         │
+         └──► Check dist/protected/ destination (Fail if exists unless overwrite=true)
+                   │
+                   ▼
+         [Copy to dist/protected/ & Run Verification Engine]
+                   │
+                   ▼
+         [Atomic Sandbox Teardown]
 ```
 
-1. **Extraction**: Unzip the input APK in `.appshield_staging/<build_id>/`. Separate `classes*.dex`, assets, and `AndroidManifest.xml`.
-2. **Rule Generation**: Synthesize default AppShield keep-rules:
-   ```pro
-   -keepattributes SourceFile,LineNumberTable
-   -renamesourcefileattribute SourceFile
-   -keep public class * extends android.app.Activity
-   -keep public class * extends android.app.Application
-   -keep public class * extends android.app.Service
-   -keep public class * extends android.content.BroadcastReceiver
-   -repackageclasses ''
-   -allowaccessmodification
-   ```
-3. **R8 Invocation**:
-   ```bash
-   java -cp "$ANDROID_HOME/build-tools/<version>/lib/d8.jar" com.android.tools.r8.R8 \
-     --release \
-     --min-api 21 \
-     --output ./staged_output/ \
-     --pg-conf ./generated_rules.pro \
-     --lib "$ANDROID_HOME/platforms/android-34/android.jar" \
-     ./staged_input/classes.dex
-   ```
-4. **Repack & Align**:
-   - Re-insert the obfuscated `classes.dex` into the staging APK archive.
-   - Run `zipalign -p -f 4 ./staged_output/unaligned.apk ./staged_output/aligned.apk`.
-5. **Signing**:
-   - Sign via `apksigner`:
-     ```bash
-     apksigner sign --ks "$KEYSTORE_PATH" --ks-key-alias "$KEY_ALIAS" \
-       --ks-pass "env:APPSHIELD_KS_PASS" --key-pass "env:APPSHIELD_KEY_PASS" \
-       ./staged_output/aligned.apk
+### 5.2. Detailed Execution Steps
+1. **Source Inspection (Read-Only)**:
+   - Validate project structure: presence of `gradlew` (or `gradlew.bat`), `settings.gradle`, and `app/build.gradle`.
+   - Calculate hash manifest of original files to verify immutability.
+2. **Isolated Sandbox Staging**:
+   - Create ephemeral directory `.appshield_staging/<uuid>/`.
+   - Copy project tree into sandbox, strictly excluding:
+     - Version control: `.git/**`, `.gitignore`
+     - Cached build artifacts: `build/**`, `.gradle/**`
+     - Credential and signing files: `**/*.jks`, `**/*.keystore`, `local.properties`, `**/*.env*`, `**/google-services.json`
+3. **R8 Configuration Injection (Sandbox Only)**:
+   - Merge AppShield default R8 hardening rules into the staging copy's `app/proguard-rules.pro`:
+     ```pro
+     # AppShield Default R8 Protection Rules
+     -keepattributes SourceFile,LineNumberTable
+     -renamesourcefileattribute SourceFile
+     -repackageclasses ''
+     -allowaccessmodification
      ```
-   - **Zero Password Exposure**: Uses `env:<VAR_NAME>` argument syntax natively supported by `apksigner`, ensuring passwords never appear in CLI process tables (`ps aux` / Task Manager).
+   - Ensure `app/build.gradle` in staging has `minifyEnabled true` and references the rules file.
+4. **Build via Supported Gradle Toolchain**:
+   - Run inside the staging sandbox:
+     ```bash
+     ./gradlew assembleRelease --no-daemon --offline
+     ```
+   - Gradle and AGP invoke R8 with full access to Android SDK platform jars, dependencies, and resource mappings, producing a fully functional, properly shrunk and obfuscated APK.
+5. **Separate Output Directory & Overwrite Guard**:
+   - Target output path: `dist/protected/<project_name>-release-protected.apk`.
+   - If destination file exists and `output.overwrite_existing` is `false`, execution terminates immediately with an error to prevent accidental data loss.
+   - Output APK is copied cleanly to `dist/protected/`.
+6. **Verification & Audit Reporting**:
+   - `VerificationEngine` runs the objective checks on the generated APK.
+   - Outputs `dist/protected/audit_report.json` and `dist/protected/audit_report.md`.
+7. **Sandbox Cleanup**:
+   - Staging directory is completely wiped from disk.
 
 ---
 
-## 6. Safety, Isolation, Credential Security & Boundaries
+## 6. Safety, Credential Protection & File Preservation
 
-### 6.1. Source File Immutability
-- Input files are opened strictly in read-only mode (`open(path, 'rb')`).
-- Before and after execution, AppShield verifies that the input file's SHA-256 hash has not changed. If a mismatch is detected, execution immediately aborts with an integrity fault.
+### 6.1. Source Preservation Guarantees
+- Original project directory is never written to or modified in place.
+- In-memory hash manifest is checked before staging and after execution to guarantee zero source corruption.
 
-### 6.2. Workspace Sandboxing & Failure Recovery
-- Staging directory is created at `.appshield_staging/<build_uuid>/` inside OS temporary directories or local cache.
-- Wrapped in a Python context manager (`with SandboxContext(...) as sb:`):
-  - On standard completion: output artifacts are copied to `dist/protected/`, and the sandbox is purged.
-  - On exception or SIGINT (Ctrl+C): all temporary files are purged immediately.
-  - If output writing fails mid-way, partial output in `dist/` is cleaned up to prevent broken artifacts.
+### 6.2. Sensitive File Exclusion from Staging
+When copying the project to staging, AppShield applies mandatory exclusion filters:
+- Version control (`.git/`)
+- Existing build caches (`build/`, `.gradle/`)
+- Keystores and certificates (`*.jks`, `*.keystore`, `*.p12`, `*.pem`)
+- Local configuration and environment variables (`local.properties`, `*.env`, `*.env.*`)
+- Service credentials (`google-services.json`, `service-account*.json`)
 
-### 6.3. Credential Safety
-- Keystore passwords and private key passphrases are never accepted as raw command-line arguments or saved to configuration files.
-- Configuration files reference environment variable names (e.g. `keystore_password_env: "MY_PASS"`).
-- Internal logging filters scrub any token matching typical credential formats.
+### 6.3. Credential Protection & Non-Production Guard
+- **No Automatic Production Signing**: By default, `signing.enabled` is `false`. Even if enabled, `is_production` must be explicitly acknowledged by the developer. AppShield will refuse to sign production release builds automatically.
+- **Zero Logged Credentials**: Passwords are read strictly from environment variable names (`keystore_password_env`, `key_password_env`). Passwords are never passed via CLI flags or written to config/report files.
+- **No File Overwrites**: Existing output artifacts are never overwritten without explicit `--overwrite` CLI flag or `overwrite_existing: true` in config.
 
-### 6.4. Air-Gapped Network Boundary
-- The core CLI explicitly blocks any remote network activity.
-- No telemetry, analytics pings, or cloud update checks.
-- Python standard library network modules (`urllib.request`, `http.client`, `socket`) are strictly prohibited in the core protection and verification path.
+### 6.4. Failure Recovery & Network Boundaries
+- Wrapped in Python context manager (`with SandboxContext() as sb:`).
+- On failure (build error, exception, Ctrl+C), temporary directories are purged immediately.
+- Partial or incomplete output files are deleted from `dist/protected/`.
+- Air-gapped execution: No network requests, telemetry, or remote calls.
 
 ---
 
 ## 7. Future Integrations Architecture (iOS & Windows)
 
-iOS and Windows adapters are specified as non-breaking, pluggable extensions:
-
-### 7.1. iOS Adapter (`appshield.adapters.ios`) — Phase 5
-- **Host Requirement**: macOS with Xcode Command Line Tools.
-- **Workflow**:
-  1. Inspect Mach-O binary in unzipped IPA payload (`Payload/<App>.app/<Binary>`).
-  2. Execute symbol stripping: `strip -x -S <Binary>`.
-  3. Extract and sanitize dSYM bundles: `dsymutil`.
-  4. Validate Mach-O load command alignment and code-signing requirements.
-  5. Re-sign using Apple Developer identity: `codesign -f -s "<Identity>" --deep Payload/<App>.app`.
-
-### 7.2. Windows Adapter (`appshield.adapters.windows`) — Phase 6
-- **Host Requirement**: Windows / cross-platform Mono/CoreCLR.
-- **Workflow**:
-  1. For .NET assemblies: Orchestrate `obfuscar.console.exe` to rename types/methods and encrypt string resources.
-  2. For native C/C++ PE binaries: Orchestrate `llvm-strip` or `dumpbin` to remove export/debug symbol tables.
-  3. Run section entropy scan to ensure the output PE does not trigger common heuristic AV flags (e.g., section entropy <= 7.2 to avoid generic heuristic malware classification).
+- **iOS Adapter** (`appshield.adapters.ios` — Phase 5): Deferred. Will support Xcode project / workspace builds with symbol stripping (`strip -x`), `dsymutil`, and local `codesign`.
+- **Windows Adapter** (`appshield.adapters.windows` — Phase 6): Deferred. Will support MSBuild / .NET solution builds with Obfuscar post-build integration and PE symbol stripping.
 
 ---
 
 ## 8. Measurable Acceptance Criteria & Disposable Test Fixtures
 
-### 8.1. Acceptance Criteria for Phase 2 (Design Gate)
-- [x] **AC-2.1**: Configuration schema defined in YAML and JSON Schema formats with strict validation rules.
-- [x] **AC-2.2**: `PlatformAdapter` and `VerificationEngine` interfaces specified with Python type annotations.
-- [x] **AC-2.3**: `audit_report.json` schema defined with objective, empirical checks (no arbitrary resistance score).
-- [x] **AC-2.4**: Android R8 MVP workflow documented end-to-end with exact CLI commands and keep-rules.
-- [x] **AC-2.5**: Source preservation, isolated output, credential safety, and recovery protocols documented.
-- [x] **AC-2.6**: Disposable test fixture specification defined.
+### 8.1. Acceptance Criteria for Revised Phase 2 (Design Gate)
+- [x] **AC-2.1**: Configuration schema supports Android Gradle project input, sensitive file exclusions, and overwrite guards.
+- [x] **AC-2.2**: `PlatformAdapter` and `VerificationEngine` interfaces specified with strict typing and objective check outcomes.
+- [x] **AC-2.3**: Verification evidence matrix defined documenting what every check proves, does not prove, and its outcome classification (no composite score).
+- [x] **AC-2.4**: Android Gradle & AGP R8 MVP workflow mapped out end-to-end. Arbitrary standalone APK input explicitly declared unsupported.
+- [x] **AC-2.5**: Source preservation, sensitive file exclusion, credential protection, and overwrite guards documented.
+- [x] **AC-2.6**: Minimal Android Gradle disposable test fixture specified.
 
 ### 8.2. Disposable Test Fixture Specification (For Phase 3 & 4)
-To satisfy the rule that *risky or destructive operations must only execute on disposable samples*, AppShield will include a minimal test fixture:
+Replaces precompiled APK fixture with a minimal, reproducible Android Gradle sample project:
 
-- **Location**: `tests/fixtures/sample_android/`
-- **Fixture Artifact**: `mini_app.apk` (~15 KB pre-compiled APK).
-- **Contents**:
-  - `MainActivity.class` (inherits `android.app.Activity`)
-  - `UserAuthenticator.class` (contains target test method `validateCredentials()`)
-  - Plaintext string constant: `"SAMPLE_API_SECRET_98765"`
-  - Hardcoded REST endpoint: `"http://internal.sample.local/v1/auth"`
-  - `AndroidManifest.xml` declaring `MainActivity`
-- **Purpose**:
-  - Phase 3 test harness uses this fixture to verify input immutability (assert SHA-256 remains identical before and after run).
-  - Phase 4 integration tests run R8 and verify that `UserAuthenticator` is renamed (e.g. to `a.a`) while `MainActivity` is kept per AndroidManifest keep-rules.
+- **Location**: `tests/fixtures/sample_android_gradle_project/`
+- **Structure**:
+  ```
+  sample_android_gradle_project/
+  ├── gradlew
+  ├── gradlew.bat
+  ├── gradle/wrapper/gradle-wrapper.properties
+  ├── settings.gradle
+  ├── build.gradle
+  └── app/
+      ├── build.gradle (configured with AGP, release buildType, minifyEnabled true)
+      ├── proguard-rules.pro
+      └── src/main/
+          ├── AndroidManifest.xml (declares MainActivity)
+          └── java/com/appshield/sample/
+              ├── MainActivity.java (entry-point Activity, deliberately kept)
+              └── IdentifiableSecretService.java (deliberately identifiable class)
+  ```
+- **Deliberately Identifiable Elements for Verification**:
+  - Class: `IdentifiableSecretService`
+  - Method: `processUserTokenAndCalculateHash()`
+  - Identifiable constant string: `"APP_SHIELD_TEST_STRING_LITERAL_XYZ"`
+- **Test Invariants**:
+  - **Source Preservation Test**: Verify that `sample_android_gradle_project/` is byte-identical before and after protection.
+  - **Obfuscation Evidence Test**: Verify that in the generated APK, `IdentifiableSecretService` and `processUserTokenAndCalculateHash` are renamed by R8, while `MainActivity` is kept.
+  - **Exclusion Test**: Verify that if a mock `test.jks` or `local.properties` is placed in the fixture, it is excluded from the staging sandbox.
