@@ -198,6 +198,12 @@ Any tool claiming "complete immunity" or "unbreakable obfuscation" is practicing
 - It does **not** protect against a skilled reverse engineer with a hardware debugger, Frida hooking on a rooted device, or a dynamic binary instrumentation framework (like QBDI or Frida) who is willing to trace memory during runtime execution.
 - Sensitive server secrets should **never** be stored in client binaries, obfuscated or not. AppShield reports will explicitly remind developers of this standard.
 
+### 7.4. Permanent Project Governance & Review Protocol
+To maintain project integrity across all lifecycle phases, AppShield enforces permanent operational rules:
+1. **Living Memory (`MEMORY.md`)**: Root-level memory file must be inspected before initiating any task. Any discrepancies between prompts, requirements, and memory are surfaced immediately.
+2. **Permanent 10-Step Full-Review Gate**: Every phase, plan, or code task concludes with automated tests, code review, static analysis/linting/typing checks, security scanning, secret/file safety checks, complexity review, criteria verification, honest reporting of skipped/unavailable checks, state updates, and change summaries.
+3. **Protection of Original Assets**: Developer source files and original binaries are immutable. Staged builds run in isolated scratch paths, outputs are cleanly segregated, and private keys/passwords are never logged or persisted. Risky tests run exclusively on disposable sample fixtures.
+
 ---
 
 ## 8. Measurable Acceptance Criteria for Phase 1
@@ -209,14 +215,16 @@ To consider Phase 1 complete and validated, the following criteria must be satis
 - [x] **AC-1.4**: Platform limitations for Android, iOS, and Windows explicitly cataloged, separating technically viable hardening from impossible features.
 - [x] **AC-1.5**: Formal threat model and "Honest Security Doctrine" articulated.
 - [x] **AC-1.6**: Clear phase roadmap and dependencies established for Phases 2–7.
+- [x] **AC-1.7**: Root-level `MEMORY.md` created with vision, non-goals, architecture, limitations, and operational review rules.
+- [x] **AC-1.8**: Full review process executed for Phase 1 planning gate, with all executed and unavailable checks reported honestly.
 
 ---
 
 ## 9. Recommended Next Steps (Phase 2)
 
-Upon user approval of this Phase 1 research and architecture:
-1. **Execute Phase 2 (Specifications & Architecture Contract)**:
+Upon user approval of this Phase 1 research, architecture, and governance foundation:
+1. **Execute Phase 2 (Specifications, Threat Model & Architecture Contract)**:
    - Define exact `appshield.yaml` configuration specification and CLI argument schema.
    - Define the `PlatformAdapter` and `VerificationEngine` Python interfaces (Abstract Base Classes).
    - Formulate the JSON verification report schema (`audit_report.json`) and scoring rubric.
-   - Specify automated unit/integration test cases for the Phase 3 implementation.
+   - Specify automated unit/integration test cases and disposable test fixtures for Phase 3.

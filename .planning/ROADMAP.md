@@ -19,18 +19,20 @@ AppShield is developed across 7 modular phases, transitioning from deep domain a
 ## Phase Details
 
 ### Phase 1: Domain Research, Engines, Licenses & Platform Limitations
-**Goal**: Identify existing, battle-tested protection engines for Android/iOS/Windows, map out licensing obligations, audit competitor feature sets, and establish platform limitations.  
+**Goal**: Identify existing, battle-tested protection engines for Android/iOS/Windows, map out licensing obligations, audit competitor feature sets, establish platform limitations, and institutionalize permanent project governance rules.  
 **Depends on**: Nothing (Initial Phase)  
-**Requirements**: Research foundation for all requirements  
+**Requirements**: Research foundation for all requirements, GOV-02  
 **Success Criteria**:
   1. Complete competitive matrix comparing open-source and commercial protection tools (Guardsquare, Promon, Obfuscapk, Obfuscar, Swift-Shield, R8/ProGuard).
   2. Identified compatible, permissively orchestratable engines per platform and established subprocess boundary license compatibility.
   3. Formulated honest security doctrine defining the boundaries between raising reverse-engineering work factors vs. impossible "unbreakable" claims.
-  4. Platform limitations documented for Android (signing v2/v3, AAB vs APK), iOS (App Store guidelines, Mach-O integrity, codesign), and Windows (Authenticode, AV heuristics).  
-**Plans**: 1 plan (01-01: Research synthesis and architecture proposal)
+  4. Platform limitations documented for Android (signing v2/v3, AAB vs APK), iOS (App Store guidelines, Mach-O integrity, codesign), and Windows (Authenticode, AV heuristics).
+  5. Established root-level `MEMORY.md` recording vision, non-goals, architecture, limitations, and operational invariants.
+  6. Phase 1 closure verified via the mandatory 10-step full review process.  
+**Plans**: 1 plan (01-01: Research synthesis, architecture proposal, and governance foundation)
 
 Plans:
-- [ ] 01-01: Domain research synthesis, license audit, competitor comparison, and technical feasibility documentation.
+- [ ] 01-01: Domain research synthesis, license audit, competitor comparison, technical feasibility documentation, and root MEMORY.md initialization.
 
 ---
 

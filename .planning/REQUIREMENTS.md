@@ -31,6 +31,13 @@ Requirements committed for v1 release (Phases 1–4).
 - [ ] **VER-02**: Verification engine runs an automated decompilation audit (e.g. headless JADX / Dex disassembler check) and scores reverse-engineering resistance.
 - [ ] **VER-03**: Report generator outputs an honest security summary that clearly explains residual risks and explicitly disclaims that reverse engineering is impossible.
 
+### Permanent Review & Governance
+
+- [ ] **GOV-01**: Automated test execution harness (`pytest`) integrated and enforced across every task, plan, and code change.
+- [ ] **GOV-02**: Execution of the mandatory 10-step full review process (tests, code review, static analysis/linting/typing, security scans, secret/file safety checks, complexity checks, acceptance checks, honest status reporting, MEMORY.md sync, change summary).
+- [ ] **GOV-03**: Zero-credential leakage assurance — strict masking and prevention of private signing keys, keystore passwords, or sensitive application code appearing in logs, temp files, or version control.
+- [ ] **GOV-04**: Disposable sample test policy — all destructive or mutating operations run strictly on disposable fixtures; developer source files remain untouched.
+
 ## v2 Requirements
 
 Deferred to subsequent phases (Phases 5–7).
@@ -77,6 +84,10 @@ Explicitly excluded to protect project safety, focus, and integrity.
 | VER-01 | Phase 4 | Pending |
 | VER-02 | Phase 4 | Pending |
 | VER-03 | Phase 4 | Pending |
+| GOV-01 | Phase 3 | Pending |
+| GOV-02 | Phase 1–7 | In Progress |
+| GOV-03 | Phase 3 | Pending |
+| GOV-04 | Phase 3 | Pending |
 | IOS-01 | Phase 5 | Deferred (v2) |
 | IOS-02 | Phase 5 | Deferred (v2) |
 | WIN-01 | Phase 6 | Deferred (v2) |
@@ -85,9 +96,10 @@ Explicitly excluded to protect project safety, focus, and integrity.
 | DOC-02 | Phase 7 | Deferred (v2) |
 
 **Coverage:**
-- v1 requirements: 12 total
-- Mapped to v1 phases: 12
+- v1 requirements: 16 total
+- Mapped to phases: 16
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-24*
+*Last updated: 2026-10-24 with permanent review governance*

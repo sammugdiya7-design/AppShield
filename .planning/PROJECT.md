@@ -42,8 +42,11 @@ AppShield fills the gap by providing an open, developer-centric, transparent CLI
 
 - **Tech Stack**: Python 3.10+ CLI with minimal external dependencies, leveraging native OS subprocesses for tooling engines.
 - **Local Isolation**: Absolute requirement for offline operation; network sockets disabled during protection operations.
-- **Workspace Safety**: Original source directories treated strictly as read-only inputs.
+- **Workspace Safety & Input Immutability**: Original source directories and binaries treated strictly as read-only inputs. Protected outputs kept separate.
+- **Credential Protection**: Never expose, log, or persist private signing keys, keystore passwords, or proprietary code.
+- **Testing Safety**: Destructive or potentially risky operations tested ONLY on disposable sample projects.
 - **License Compliance**: Any bundled or invoked third-party engines (GPL/Apache/MIT) must maintain clean subprocess execution boundaries to ensure license compatibility.
+- **Permanent Review Gate**: Every task, planning phase, or code change must undergo the mandatory 10-step full review process documented in `MEMORY.md`.
 - **Platform Limitations**: 
   - Android requires valid keystores for repackaged APK/AAB alignment and v2/v3/v4 signing.
   - iOS requires macOS host and Apple Developer code signing certificates (`codesign`) to run on physical hardware; Mach-O tampering risks invalidating App Store validation if not compliant with FairPlay and Xcode toolchains.
@@ -57,6 +60,7 @@ AppShield fills the gap by providing an open, developer-centric, transparent CLI
 | Ephemeral Build Sandbox | Copying inputs into an isolated `.appshield_build/` or temp sandbox prevents accidental corruption of developer source trees and git repos. | — Pending |
 | Verification-First Reporting | Running automated decompilation checks (e.g. JADX or symbol scrapers) provides empirical proof of protection rather than security theater. | — Pending |
 | Honest Security Doctrine | Explicitly stating the limits of obfuscation builds professional credibility and aligns with OWASP MASVS recommendations. | — Pending |
+| Root MEMORY.md & Mandatory 10-Step Review Gate | Ensures institutional memory, continuous regression detection, zero credential leakage, and strict adherence to project invariants across all sessions. | ✓ Good |
 
 ## Evolution
 
