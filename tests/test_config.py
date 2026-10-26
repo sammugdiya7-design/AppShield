@@ -506,7 +506,10 @@ def test_input_immutability_exclude_patterns_valid(sample_gradle_dir: Path):
     cfg = validate_and_parse_config(data)
     assert cfg.input.immutability_exclude_patterns == [".git/**", "custom_scratch/**"]
     exported = cfg.to_dict()
-    assert exported["input"]["immutability_exclude_patterns"] == [".git/**", "custom_scratch/**"]
+    assert exported["input"]["immutability_exclude_patterns"] == [
+        ".git/**",
+        "custom_scratch/**",
+    ]
 
 
 def test_input_immutability_exclude_patterns_invalid(sample_gradle_dir: Path):
@@ -523,6 +526,7 @@ def test_input_immutability_exclude_patterns_invalid(sample_gradle_dir: Path):
     }
     with pytest.raises(ConfigValidationError) as exc:
         validate_and_parse_config(data)
-    assert "'input.immutability_exclude_patterns' must be a list of string glob patterns" in str(
-        exc.value
+    assert (
+        "'input.immutability_exclude_patterns' must be a list of string glob patterns"
+        in str(exc.value)
     )

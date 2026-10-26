@@ -47,6 +47,8 @@ Progress: [████░░░░░░] 40%
 - [Phase 2]: Android MVP centered around supported Android Gradle projects (AGP + gradlew + R8); arbitrary precompiled APK input explicitly marked unsupported.
 - [Phase 2]: Defined `tests/fixtures/sample_android_gradle_project/` as minimal disposable Android Gradle fixture with deliberately identifiable symbols and strings.
 - [Phase 2]: Added sensitive file exclusion filters (.git, build, *.jks, local.properties, .env), output overwrite guards, and non-production signing confirmation.
+- [Phase 3 - Plan 03-02]: Strengthened source-immutability verification so sensitive files (*.jks, local.properties, *.env*, google-services.json) excluded from staging copies are strictly included in source-preservation manifests. Documented deliberate immutability exclusions (.git/**, tool staging/caches).
+- [Phase 3 - Plan 03-02]: Clarified architectural distinction: isolated staging workspace is a filesystem copy isolation mechanism, not an OS-level kernel process sandbox. Recognized Gradle build execution risks; enforced disposable sample fixture constraint for testing.
 
 ### Pending Todos
 

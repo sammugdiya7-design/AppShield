@@ -69,12 +69,13 @@ A simple, local, cross-platform application code-protection CLI for developers t
 - [x] Completed Plan 03-02: Workspace Sandbox Manager and Workspace Isolation:
   - `appshield/sandbox.py`: Implemented `SandboxManager` (and `SandboxContext` alias), `SourceManifest`, `safe_remove_tree`, `is_path_excluded`, and `check_symlink_safety`.
   - Source tree immutability: Computes SHA-256 manifest before and after staging; detects additions, deletions, and modifications.
+  - Sensitive files in immutability manifest: `*.jks`, `local.properties`, `*.env*`, and `google-services.json` are excluded from staging copies but strictly tracked in the source immutability manifest.
   - Workspace staging: Staged in isolated ephemeral build directories under system temp by default; original source tree treated strictly as read-only.
-  - Sensitive file exclusions: Excludes `.git/**`, `build/**`, `.gradle/**`, `*.jks`, `*.keystore`, `local.properties`, `*.env*`, `google-services.json`, and `.appshield_staging/**`.
+  - Sensitive file exclusions: Excludes `.git/**`, `build/**`, `.gradle/**`, `*.jks`, `*.keystore`, `local.properties`, `*.env*`, `google-services.json`, and `.appshield_staging/**` from staging copies.
   - Failure recovery: Staging failures and errors trigger automatic, safe cleanup of the temporary sandbox without touching external files.
   - Security defenses: Path traversal guards on staging and artifact export; symlink escaping checks; Windows read-only attribute handling.
   - Output safeguards: `export_artifact` enforces destination existence checks and overwrite protection.
-  - Automated tests: 23 unit tests in `tests/test_sandbox.py` (total 75 tests across suite) passing with 96% coverage.
+  - Automated tests: 31 unit tests in `tests/test_sandbox.py` (total 83 tests across suite) passing with 95% coverage.
   - Static analysis: `ruff`, `mypy`, and `bandit` passing with 0 warnings.
 
 ### Pending Immediate Tasks
@@ -111,10 +112,23 @@ A simple, local, cross-platform application code-protection CLI for developers t
 - Every check explicitly reports what it proves, what it does not prove, and its status: `VERIFIED`, `HEURISTIC`, `INFORMATIONAL`, `FAILED`, or `UNSUPPORTED`.
 
 ### Safety, Credentials & Workspace Invariants
-- **Sensitive File Exclusion**: Staging copies strictly exclude `.git/`, `build/`, `.gradle/`, `*.jks`, `*.keystore`, `local.properties`, and `*.env*`.
+- **Sensitive File Exclusion from Staging**: Staging copies strictly exclude `.git/`, `build/`, `.gradle/`, `*.jks`, `*.keystore`, `local.properties`, `*.env*`, and `google-services.json` to prevent leaking credentials into build outputs.
+- **Sensitive File Inclusion in Immutability Checks**: Sensitive files are NEVER excluded from source-immutability checks. They are cryptographically hashed and verified before and after execution.
+- **Documented Immutability Exclusions**: Only `.git/**` (internal VCS state) and `.appshield_staging/**` / `.appshield_cache/**` (tool-managed temporary directories) are deliberately excluded from immutability checks.
 - **No Automatic Production Signing**: Signing is disabled by default; production signing requires explicit confirmation.
 - **No Overwriting Artifacts**: Existing destination files are never overwritten without explicit `--overwrite` or `overwrite_existing: true`.
-- **Zero Logged Credentials**: Passwords referenced exclusively via environment variable names; never passed in CLI flags or printed in reports.
+- **Zero Logged Credentials**: Passwords referenced exclusively via environment variable names; never passed in CLI flags, printed in reports, or logged.
+
+### Isolation Guarantees vs. OS Sandboxing & Build Execution Risks
+- **Isolated Staging Directory**: An ephemeral directory (`tempfile.gettempdir() / "appshield_staging" / build_<uuid>`) where source files are copied.
+- **Filesystem Change Protection**: Cryptographic SHA-256 pre/post manifest comparison, sensitive credential exclusions, and overwrite guards on output artifacts.
+- **Crucial Distinction from OS Sandbox**: AppShield's staging workspace is a **filesystem copy isolation and verification mechanism, NOT an operating-system kernel process sandbox** (such as Linux namespaces/seccomp, macOS seatbelt, or Windows AppContainer). Subprocesses executed within the staging area (such as Gradle, R8, or Java) run with standard operating system privileges under the user's OS account.
+- **Build Execution Risks**: Gradle build scripts (`build.gradle`, `settings.gradle`, plugins) execute arbitrary Groovy/Kotlin JVM bytecode capable of network access and filesystem modification.
+- **Plan 03-03 Policy**: All testing in Plan 03-03 and Phase 3 runs exclusively against the controlled, disposable sample project (`tests/fixtures/sample_android_gradle_project/`). Never run automated tests against untrusted or arbitrary external developer projects.
+- **Future Untrusted Builds Policy**: Before any future release builds arbitrary or untrusted developer projects, AppShield must define:
+  1. An execution threat model acknowledging that build tools execute developer-supplied code;
+  2. Explicit user consent and confirmation requirements before triggering build processes;
+  3. Appropriate isolation controls (containerization, virtual machines, or `--offline` build flags) or explicit documentation that running a build requires trusting the project's build scripts.
 
 ### Known Limitations
 - **Android**: Arbitrary precompiled APK input is unsupported for R8; requires supported Android Gradle project. Reflection requires explicit keep-rules.

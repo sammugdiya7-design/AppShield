@@ -380,15 +380,38 @@ def test_compute_source_manifest_escaping_symlink_raises_security_error(
     ext_file.write_text("outside", encoding="utf-8")
 
     link = src / "escaping_link"
+    can_create_symlink = False
     try:
         link.symlink_to(ext_file)
+        can_create_symlink = True
     except OSError:
-        pytest.skip("Symlink creation requires elevated privileges on this Windows system.")
+        pass
 
-    with pytest.raises(SecurityError) as exc:
-        compute_source_manifest(src)
+    if can_create_symlink:
+        try:
+            with pytest.raises(SecurityError) as exc:
+                compute_source_manifest(src)
+            assert "points outside source tree" in str(exc.value)
+        finally:
+            if link.exists() or link.is_symlink():
+                link.unlink()
+    else:
+        # On Windows without elevated symlink privileges, test check_symlink_safety directly
+        from appshield.sandbox import check_symlink_safety
 
-    assert "points outside source tree" in str(exc.value)
+        class MockEscapingSymlink:
+            def is_symlink(self) -> bool:
+                return True
+
+            def resolve(self) -> Path:
+                return ext_file.resolve()
+
+            def __str__(self) -> str:
+                return "escaping_link"
+
+        with pytest.raises(SecurityError) as exc:
+            check_symlink_safety(MockEscapingSymlink(), src)  # type: ignore[arg-type]
+        assert "points outside source tree" in str(exc.value)
 
 
 def test_sandbox_atomic_cleanup_on_staging_failure(tmp_path: Path):

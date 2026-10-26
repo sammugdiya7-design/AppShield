@@ -60,9 +60,9 @@ Plans:
 **Requirements**: CLI-01, CLI-02, CLI-03, ISO-01, ISO-02, ISO-03, GOV-01, GOV-02, GOV-04  
 **Success Criteria**:
   1. Running `appshield --help`, `appshield doctor`, and `appshield info` succeeds across Windows, macOS, and Linux.
-  2. Workspace isolation verified: staging directories created in temp paths with sensitive file exclusions (`.git`, `build`, `*.jks`, `local.properties`), source files strictly read-only and verified bit-for-bit identical before and after run.
+  2. Workspace isolation verified: staging directories created in ephemeral temp paths with sensitive file exclusions from staging copy (`.git`, `build`, `*.jks`, `local.properties`); original source files strictly read-only and verified bit-for-bit identical via SHA-256 manifests (including sensitive files); clear architectural distinction maintained between filesystem staging scratchpads and OS process sandboxing.
   3. Clean separation of artifacts: protected outputs written strictly to distinct output folder; existing outputs never overwritten without explicit flag.
-  4. Disposable Android Gradle project fixture (`tests/fixtures/sample_android_gradle_project/`) constructed for safe, repeatable testing.
+  4. Disposable Android Gradle project fixture (`tests/fixtures/sample_android_gradle_project/`) constructed for safe, repeatable testing (untrusted developer builds require future consent & containerization controls).
   5. Complete unit test harness passing with >85% code coverage for core orchestration.  
 **Plans**: 3 plans (03-01: CLI shell & config parser, 03-02: Isolated workspace sandbox manager & source immutability guard, 03-03: Disposable Android Gradle test fixture & test harness)
 

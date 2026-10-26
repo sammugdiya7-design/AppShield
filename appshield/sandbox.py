@@ -42,7 +42,6 @@ else:
     from typing_extensions import Self  # pragma: no cover
 
 from appshield.config import (
-    DEFAULT_EXCLUDE_PATTERNS,
     DEFAULT_IMMUTABILITY_EXCLUDE_PATTERNS,
     DEFAULT_STAGING_EXCLUDE_PATTERNS,
     AppShieldConfig,
@@ -210,7 +209,7 @@ def compute_source_manifest(
                 if file_path.is_symlink() and not file_path.is_file():
                     target_str = os.readlink(file_path)
                     file_hashes[rel_file.as_posix()] = hashlib.sha256(
-                        f"symlink:{target_str}".encode("utf-8")
+                        f"symlink:{target_str}".encode()
                     ).hexdigest()
                 else:
                     file_hashes[rel_file.as_posix()] = compute_file_sha256(file_path)
