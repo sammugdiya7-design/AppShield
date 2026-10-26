@@ -45,9 +45,9 @@ A simple, local, cross-platform application code-protection CLI for developers t
 ## 3. Current Phase & Progress
 
 - **Current Phase**: Phase 3: Core Python CLI Foundation, Workspace Isolation & Test Harness
-- **Current Plan**: 03-02: Workspace Sandbox Manager and Workspace Isolation (In Progress)
-- **Status**: Plan 03-01 approved; Plan 03-02 executing (reconciled Phase 3 into 3 distinct plans)
-- **Overall Progress**: 30% (Phases 1 & 2 complete; Phase 3 Plan 03-01 approved; 3 of 10 total plans completed)
+- **Current Plan**: 03-02 Complete (Sandbox Manager, source immutability guard, sensitive file exclusion, 75 pytest tests, 96% coverage)
+- **Status**: Plan 03-02 Complete; Awaiting user review before Plan 03-03 (Disposable Android test fixture & harness)
+- **Overall Progress**: 40% (Phases 1 & 2 complete; Phase 3 Plans 03-01 & 03-02 complete; 4 of 10 total plans completed)
 
 ---
 
@@ -66,9 +66,19 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - `appshield/doctor.py`: Local environment prerequisite detection (Java, Javac, `JAVA_HOME`, `ANDROID_HOME`, Gradle/gradlew, `zipalign`, `apksigner`).
   - Automated tests: 52 unit tests in `tests/test_cli.py`, `tests/test_config.py`, and `tests/test_doctor.py` passing with 99% test coverage.
   - Linter (`ruff`), type checker (`mypy`), and security scanner (`bandit`) clean with zero issues.
+- [x] Completed Plan 03-02: Workspace Sandbox Manager and Workspace Isolation:
+  - `appshield/sandbox.py`: Implemented `SandboxManager` (and `SandboxContext` alias), `SourceManifest`, `safe_remove_tree`, `is_path_excluded`, and `check_symlink_safety`.
+  - Source tree immutability: Computes SHA-256 manifest before and after staging; detects additions, deletions, and modifications.
+  - Workspace staging: Staged in isolated ephemeral build directories under system temp by default; original source tree treated strictly as read-only.
+  - Sensitive file exclusions: Excludes `.git/**`, `build/**`, `.gradle/**`, `*.jks`, `*.keystore`, `local.properties`, `*.env*`, `google-services.json`, and `.appshield_staging/**`.
+  - Failure recovery: Staging failures and errors trigger automatic, safe cleanup of the temporary sandbox without touching external files.
+  - Security defenses: Path traversal guards on staging and artifact export; symlink escaping checks; Windows read-only attribute handling.
+  - Output safeguards: `export_artifact` enforces destination existence checks and overwrite protection.
+  - Automated tests: 23 unit tests in `tests/test_sandbox.py` (total 75 tests across suite) passing with 96% coverage.
+  - Static analysis: `ruff`, `mypy`, and `bandit` passing with 0 warnings.
 
 ### Pending Immediate Tasks
-- [ ] Plan 03-02: Isolated workspace sandbox manager, sensitive file exclusion, source preservation hashing, failure recovery, and overwrite safeguards.
+- [ ] Obtain user review and approval for Plan 03-02.
 - [ ] Plan 03-03: Disposable Android Gradle test fixture (`tests/fixtures/sample_android_gradle_project/`) and end-to-end integration test harness.
 
 ---
