@@ -64,11 +64,12 @@ Plans:
   3. Clean separation of artifacts: protected outputs written strictly to distinct output folder; existing outputs never overwritten without explicit flag.
   4. Disposable Android Gradle project fixture (`tests/fixtures/sample_android_gradle_project/`) constructed for safe, repeatable testing.
   5. Complete unit test harness passing with >85% code coverage for core orchestration.  
-**Plans**: 2 plans (03-01: CLI shell & config parser, 03-02: Isolated workspace sandbox manager & test fixture harness)
+**Plans**: 3 plans (03-01: CLI shell & config parser, 03-02: Isolated workspace sandbox manager & source immutability guard, 03-03: Disposable Android Gradle test fixture & test harness)
 
 Plans:
 - [x] 03-01: CLI scaffolding, subcommand registration, and config loader.
-- [ ] 03-02: Workspace sandbox manager, input immutability guard, test fixture, and test suite.
+- [ ] 03-02: Workspace sandbox manager, sensitive file exclusion, and source immutability verification.
+- [ ] 03-03: Disposable Android Gradle test fixture and end-to-end integration test harness.
 
 ---
 
@@ -144,7 +145,7 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Domain Research & Feasibility | 1/1 | Complete | 2026-10-24 |
 | 2. Specs & Threat Model | 1/1 | Complete (Planning) | 2026-10-24 |
-| 3. CLI Foundation & Sandboxing | 1/2 | In progress | - |
+| 3. CLI Foundation & Sandboxing | 1/3 | In progress | - |
 | 4. Android Pipeline & Verification | 0/2 | Not started | - |
 | 5. iOS Protection Engine | 0/1 | Not started | - |
 | 6. Windows Support | 0/1 | Not started | - |

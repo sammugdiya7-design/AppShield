@@ -45,9 +45,9 @@ A simple, local, cross-platform application code-protection CLI for developers t
 ## 3. Current Phase & Progress
 
 - **Current Phase**: Phase 3: Core Python CLI Foundation, Workspace Isolation & Test Harness
-- **Current Plan**: 03-01 Complete (Python CLI Foundation, config validation, doctor checks, output overwrite guards, 52 pytest tests, 99% coverage)
-- **Status**: Plan 03-01 Complete; Awaiting user review before Plan 03-02 (Workspace staging & test harness)
-- **Overall Progress**: 33% (Phases 1 & 2 complete; Phase 3 Plan 03-01 implemented and verified)
+- **Current Plan**: 03-02: Workspace Sandbox Manager and Workspace Isolation (In Progress)
+- **Status**: Plan 03-01 approved; Plan 03-02 executing (reconciled Phase 3 into 3 distinct plans)
+- **Overall Progress**: 30% (Phases 1 & 2 complete; Phase 3 Plan 03-01 approved; 3 of 10 total plans completed)
 
 ---
 
@@ -58,7 +58,7 @@ A simple, local, cross-platform application code-protection CLI for developers t
 - [x] Completed Phase 1 Research dossier (`.planning/research/PHASE1_RESEARCH.md`).
 - [x] Established root-level `MEMORY.md` and permanent project governance rules.
 - [x] Completed Phase 2 Specifications dossier (`.planning/specs/PHASE2_SPECIFICATIONS.md`) covering CLI schema, interfaces, report schema, R8 MVP, and test fixtures.
-- [x] Completed Plan 03-01: Python CLI Foundation:
+- [x] Completed Plan 03-01: Python CLI Foundation (Approved by user):
   - `pyproject.toml` configuration with editable package support and development dependencies.
   - `README.md` created documenting project invariants, CLI usage, and test commands.
   - `appshield/cli.py`: Implemented CLI entry point and subcommands (`info`, `doctor`, `protect`, `verify`).
@@ -68,8 +68,8 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Linter (`ruff`), type checker (`mypy`), and security scanner (`bandit`) clean with zero issues.
 
 ### Pending Immediate Tasks
-- [ ] Obtain user review and approval for Plan 03-01.
-- [ ] Plan 03-02: Isolated workspace sandbox manager, input immutability guard, disposable Android Gradle test fixture (`tests/fixtures/sample_android_gradle_project/`), and integration tests.
+- [ ] Plan 03-02: Isolated workspace sandbox manager, sensitive file exclusion, source preservation hashing, failure recovery, and overwrite safeguards.
+- [ ] Plan 03-03: Disposable Android Gradle test fixture (`tests/fixtures/sample_android_gradle_project/`) and end-to-end integration test harness.
 
 ---
 

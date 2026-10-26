@@ -32,6 +32,8 @@ DEFAULT_EXCLUDE_PATTERNS = [
     "local.properties",
     "**/*.env*",
     "**/google-services.json",
+    ".appshield_staging/**",
+    ".appshield_staging",
 ]
 
 PROJECT_NAME_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
