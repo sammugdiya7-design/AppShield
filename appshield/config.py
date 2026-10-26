@@ -20,8 +20,8 @@ except ImportError:  # pragma: no cover
     HAVE_YAML = False
 
 
-# Default sensitive and build cache patterns excluded when copying to staging
-DEFAULT_EXCLUDE_PATTERNS = [
+# Default sensitive and build cache patterns excluded when copying to staging workspace
+DEFAULT_STAGING_EXCLUDE_PATTERNS: list[str] = [
     ".git/**",
     ".git",
     "build/**",
@@ -34,6 +34,30 @@ DEFAULT_EXCLUDE_PATTERNS = [
     "**/google-services.json",
     ".appshield_staging/**",
     ".appshield_staging",
+]
+DEFAULT_EXCLUDE_PATTERNS = DEFAULT_STAGING_EXCLUDE_PATTERNS
+
+# Default paths deliberately excluded from source-immutability SHA-256 verification.
+#
+# Deliberately excluded paths and reasons:
+# 1. '.git/**', '.git': VCS internal repository data containing dynamic files (e.g. index.lock,
+#    loose objects, ref updates, fetch/pack logs) that may fluctuate during background Git
+#    operations or IDE version control integrations. These are VCS internals, not application source.
+# 2. '.appshield_staging/**', '.appshield_staging': Ephemeral staging workspace directories
+#    managed by AppShield itself if configured within the project directory.
+# 3. '.appshield_cache/**', '.appshield_cache': Ephemeral cache files managed by AppShield.
+#
+# CRITICAL SECURITY INVARIANT:
+# Sensitive files (*.jks, *.keystore, local.properties, *.env*, google-services.json) are NEVER
+# excluded from source-immutability verification. They must remain bit-for-bit identical in the
+# original source project throughout all operations.
+DEFAULT_IMMUTABILITY_EXCLUDE_PATTERNS: list[str] = [
+    ".git/**",
+    ".git",
+    ".appshield_staging/**",
+    ".appshield_staging",
+    ".appshield_cache/**",
+    ".appshield_cache",
 ]
 
 PROJECT_NAME_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -66,6 +90,9 @@ class InputConfig:
     verify_source_immutability: bool = True
     exclude_patterns: list[str] = field(
         default_factory=lambda: list(DEFAULT_EXCLUDE_PATTERNS)
+    )
+    immutability_exclude_patterns: list[str] = field(
+        default_factory=lambda: list(DEFAULT_IMMUTABILITY_EXCLUDE_PATTERNS)
     )
 
 
@@ -130,6 +157,7 @@ class AppShieldConfig:
                 "project_dir": str(self.input.project_dir),
                 "verify_source_immutability": self.input.verify_source_immutability,
                 "exclude_patterns": self.input.exclude_patterns,
+                "immutability_exclude_patterns": self.input.immutability_exclude_patterns,
             },
             "output": {
                 "dir": str(self.output.dir),
@@ -283,10 +311,23 @@ def validate_and_parse_config(
     else:
         exclude_patterns = list(DEFAULT_EXCLUDE_PATTERNS)
 
+    raw_immutability_excludes = raw_input.get("immutability_exclude_patterns")
+    if raw_immutability_excludes is not None:
+        if not isinstance(raw_immutability_excludes, list) or not all(
+            isinstance(x, str) for x in raw_immutability_excludes
+        ):
+            raise ConfigValidationError(
+                "'input.immutability_exclude_patterns' must be a list of string glob patterns."
+            )
+        immutability_exclude_patterns = list(raw_immutability_excludes)
+    else:
+        immutability_exclude_patterns = list(DEFAULT_IMMUTABILITY_EXCLUDE_PATTERNS)
+
     input_config = InputConfig(
         project_dir=project_dir_path,
         verify_source_immutability=verify_immutability,
         exclude_patterns=exclude_patterns,
+        immutability_exclude_patterns=immutability_exclude_patterns,
     )
 
     # 3. Output configuration

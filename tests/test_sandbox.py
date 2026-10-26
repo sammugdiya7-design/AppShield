@@ -273,6 +273,124 @@ def test_sandbox_source_immutability_detects_deleted_file(
     assert "settings.gradle" in str(exc.value)
 
 
+def test_sensitive_files_excluded_from_staging_are_verified_in_source_manifest(
+    sample_source_project: Path,
+):
+    """
+    Critical security test:
+    Sensitive files (*.jks, local.properties, .env, google-services.json) MUST be excluded
+    from the staging directory, but MUST be included in the source immutability manifest.
+    """
+    with SandboxManager(source_dir=sample_source_project) as sb:
+        assert sb.initial_manifest is not None
+        hashes = sb.initial_manifest.file_hashes
+
+        # 1. Sensitive files MUST be tracked in the source manifest
+        assert "release.jks" in hashes
+        assert "local.properties" in hashes
+        assert ".env" in hashes
+        assert ".env.local" in hashes
+        assert "app/google-services.json" in hashes
+        assert "app/debug.keystore" in hashes
+
+        # 2. Sensitive files MUST NOT be present in staging
+        assert not (sb.staging_dir / "release.jks").exists()
+        assert not (sb.staging_dir / "local.properties").exists()
+        assert not (sb.staging_dir / ".env").exists()
+        assert not (sb.staging_dir / ".env.local").exists()
+        assert not (sb.staging_dir / "app" / "google-services.json").exists()
+        assert not (sb.staging_dir / "app" / "debug.keystore").exists()
+
+
+def test_source_immutability_detects_sensitive_file_modification(
+    sample_source_project: Path,
+):
+    """Modifying a sensitive file in the original project triggers SourceImmutabilityError."""
+    with (
+        pytest.raises(SourceImmutabilityError) as exc,
+        SandboxManager(source_dir=sample_source_project),
+    ):
+        # Deliberately tamper with the keystore in the original project
+        keystore = sample_source_project / "release.jks"
+        keystore.write_bytes(b"TAMPERED_KEYSTORE_BYTES")
+
+    assert "Source preservation violation detected" in str(exc.value)
+    assert "release.jks" in str(exc.value)
+
+
+def test_source_immutability_detects_sensitive_file_deletion(
+    sample_source_project: Path,
+):
+    """Deleting a sensitive file in the original project triggers SourceImmutabilityError."""
+    with (
+        pytest.raises(SourceImmutabilityError) as exc,
+        SandboxManager(source_dir=sample_source_project),
+    ):
+        # Deliberately delete local.properties
+        props = sample_source_project / "local.properties"
+        props.unlink()
+
+    assert "Source preservation violation detected" in str(exc.value)
+    assert "local.properties" in str(exc.value)
+
+
+def test_source_immutability_detects_sensitive_file_addition(
+    sample_source_project: Path,
+):
+    """Adding a new sensitive or unexpected file in the original project triggers SourceImmutabilityError."""
+    with (
+        pytest.raises(SourceImmutabilityError) as exc,
+        SandboxManager(source_dir=sample_source_project),
+    ):
+        # Deliberately add an unexpected environment secret file
+        new_secret = sample_source_project / ".env.production"
+        new_secret.write_text("PROD_SECRET=999\n", encoding="utf-8")
+
+    assert "Source preservation violation detected" in str(exc.value)
+    assert ".env.production" in str(exc.value)
+
+
+def test_documented_immutability_exclusions_allow_git_internals(
+    sample_source_project: Path,
+):
+    """
+    Verifies that documented immutability exclusions (.git/**) allow VCS internal
+    file fluctuations without triggering false-positive source immutability errors.
+    """
+    with SandboxManager(source_dir=sample_source_project):
+        # Simulate Git index / HEAD update during background operations
+        git_head = sample_source_project / ".git" / "HEAD"
+        git_head.write_text("ref: refs/heads/new_feature\n", encoding="utf-8")
+
+    # Exiting context manager succeeds cleanly because .git/** is deliberately excluded
+    assert sample_source_project.exists()
+
+
+def test_compute_source_manifest_escaping_symlink_raises_security_error(
+    tmp_path: Path,
+):
+    """compute_source_manifest raises SecurityError if an escaping symlink is encountered."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "normal.txt").write_text("normal", encoding="utf-8")
+
+    external = tmp_path / "external"
+    external.mkdir()
+    ext_file = external / "secret.txt"
+    ext_file.write_text("outside", encoding="utf-8")
+
+    link = src / "escaping_link"
+    try:
+        link.symlink_to(ext_file)
+    except OSError:
+        pytest.skip("Symlink creation requires elevated privileges on this Windows system.")
+
+    with pytest.raises(SecurityError) as exc:
+        compute_source_manifest(src)
+
+    assert "points outside source tree" in str(exc.value)
+
+
 def test_sandbox_atomic_cleanup_on_staging_failure(tmp_path: Path):
     """If staging fails midway, the staging directory is completely wiped."""
     src = tmp_path / "valid_src"

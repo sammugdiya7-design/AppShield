@@ -489,3 +489,40 @@ def test_verification_checks_not_list_of_strings(sample_gradle_dir: Path):
     assert "'verification.checks' must be a list of check name strings" in str(
         exc.value
     )
+
+
+def test_input_immutability_exclude_patterns_valid(sample_gradle_dir: Path):
+    """Test valid custom immutability_exclude_patterns in input."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {
+            "project_dir": str(sample_gradle_dir),
+            "immutability_exclude_patterns": [".git/**", "custom_scratch/**"],
+        },
+        "output": {"dir": "dist"},
+    }
+    cfg = validate_and_parse_config(data)
+    assert cfg.input.immutability_exclude_patterns == [".git/**", "custom_scratch/**"]
+    exported = cfg.to_dict()
+    assert exported["input"]["immutability_exclude_patterns"] == [".git/**", "custom_scratch/**"]
+
+
+def test_input_immutability_exclude_patterns_invalid(sample_gradle_dir: Path):
+    """Test that invalid immutability_exclude_patterns raises ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {
+            "project_dir": str(sample_gradle_dir),
+            "immutability_exclude_patterns": "not_a_list",
+        },
+        "output": {"dir": "dist"},
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "'input.immutability_exclude_patterns' must be a list of string glob patterns" in str(
+        exc.value
+    )

@@ -1,7 +1,24 @@
 """
 AppShield Sandbox Manager and Workspace Isolation.
-Guarantees source immutability, isolated staging, sensitive file exclusions,
-and safe cleanup without modifying developer source code or credentials.
+
+ARCHITECTURAL DISTINCTION:
+  1. Isolated Staging Directory: An ephemeral filesystem scratch folder (under system temp
+     by default) into which project source files are copied, excluding sensitive credentials,
+     keys, and build caches.
+  2. Filesystem Change Protection & Source Immutability: Guarantees that the original developer
+     source project remains bit-for-bit identical via pre- and post-run SHA-256 manifests,
+     sensitive file exclusion from staging, safe directory cleanup, and overwrite protection.
+  3. NOT an OS Process Sandbox: This staging workspace is a filesystem isolation mechanism,
+     NOT an operating-system kernel process sandbox (such as Linux seccomp/cgroups/namespaces,
+     macOS seatbelt, or Windows AppContainer). Subprocesses executed within the staging area
+     (such as Gradle or R8) run under the user's OS credentials and can make network calls
+     or execute arbitrary code if their build scripts contain such instructions.
+
+BUILD EXECUTION RISKS:
+  Gradle build scripts (build.gradle, settings.gradle, plugins) execute arbitrary JVM bytecode.
+  For automated tests, only controlled, disposable sample fixtures must be used. Untrusted
+  developer projects require future execution threat models, consent requirements, and process
+  isolation controls before execution.
 """
 
 from __future__ import annotations
@@ -26,6 +43,8 @@ else:
 
 from appshield.config import (
     DEFAULT_EXCLUDE_PATTERNS,
+    DEFAULT_IMMUTABILITY_EXCLUDE_PATTERNS,
+    DEFAULT_STAGING_EXCLUDE_PATTERNS,
     AppShieldConfig,
     AppShieldError,
     validate_output_destination,
@@ -147,18 +166,33 @@ def compute_source_manifest(
 ) -> SourceManifest:
     """
     Scan the source directory and compute SHA-256 hashes for all non-excluded files.
+
+    CRITICAL SECURITY INVARIANTS:
+      1. Sensitive files (*.jks, *.keystore, local.properties, *.env*, google-services.json)
+         are NOT excluded from immutability verification. They MUST be hashed and verified.
+      2. Deliberately excluded paths are documented in DEFAULT_IMMUTABILITY_EXCLUDE_PATTERNS
+         (only VCS internals like .git and tool-managed staging/caches).
+      3. Symlinks are verified to ensure they resolve strictly within source_dir. Escaping
+         symlinks raise SecurityError to prevent data leakage or external traversal.
+      4. Never logs file contents, secrets, or signing material.
     """
     resolved_root = source_dir.resolve()
     patterns = (
         list(exclude_patterns)
         if exclude_patterns is not None
-        else list(DEFAULT_EXCLUDE_PATTERNS)
+        else list(DEFAULT_IMMUTABILITY_EXCLUDE_PATTERNS)
     )
     file_hashes: dict[str, str] = {}
 
-    for root, dirs, files in os.walk(resolved_root):
+    for root, dirs, files in os.walk(resolved_root, followlinks=False):
         root_path = Path(root)
         rel_root = root_path.relative_to(resolved_root)
+
+        # Check symlink safety for directories before traversing
+        for d in dirs:
+            dir_path = root_path / d
+            if dir_path.is_symlink():
+                check_symlink_safety(dir_path, resolved_root)
 
         dirs[:] = [d for d in dirs if not is_path_excluded(rel_root / d, patterns)]
 
@@ -168,8 +202,18 @@ def compute_source_manifest(
             if is_path_excluded(rel_file, patterns):
                 continue
 
+            # Symlink safety check: symlinks must not escape source_dir
+            if file_path.is_symlink():
+                check_symlink_safety(file_path, resolved_root)
+
             try:
-                file_hashes[rel_file.as_posix()] = compute_file_sha256(file_path)
+                if file_path.is_symlink() and not file_path.is_file():
+                    target_str = os.readlink(file_path)
+                    file_hashes[rel_file.as_posix()] = hashlib.sha256(
+                        f"symlink:{target_str}".encode("utf-8")
+                    ).hexdigest()
+                else:
+                    file_hashes[rel_file.as_posix()] = compute_file_sha256(file_path)
             except (OSError, PermissionError) as e:
                 raise SandboxError(
                     f"Failed to hash source file '{file_path}': {e}"
@@ -244,31 +288,52 @@ def safe_remove_tree(target_dir: Path, allowed_parent: Path) -> None:
 class SandboxManager:
     """
     Manages isolated ephemeral staging workspaces.
+
     Guarantees:
-      1. Original project is strictly read-only.
-      2. Intermediate operations occur exclusively within an isolated staging sandbox.
-      3. Sensitive files and build caches are excluded from staging.
-      4. Staging failures and errors trigger safe cleanup of the temporary sandbox.
+      1. Original project is strictly read-only and verified bit-for-bit identical.
+      2. Intermediate operations occur exclusively within an isolated staging scratch folder.
+      3. Sensitive files (*.jks, local.properties, *.env*) are excluded from the staging copy,
+         yet strictly verified in the source immutability manifest.
+      4. Staging failures and errors trigger safe cleanup of the temporary staging directory.
       5. Source preservation is verified via SHA-256 manifest comparisons.
       6. Output artifacts are safely exported with overwrite safeguards.
       7. Cleanup strictly deletes files within its own staging directory.
-      8. Avoids executing project scripts or configuration commands.
+      8. Avoids executing project scripts or arbitrary configuration commands.
+
+    Distinction:
+      This is an isolated filesystem staging scratchpad, NOT an operating-system process sandbox.
+      Subprocesses (like Gradle) run with user privileges. Build scripts can execute code.
     """
 
     def __init__(
         self,
         source_dir: Path | str,
         staging_parent: Path | str | None = None,
-        exclude_patterns: list[str] | None = None,
+        staging_exclude_patterns: list[str] | None = None,
+        immutability_exclude_patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,  # Backward compatibility alias
         verify_source_immutability: bool = True,
         cleanup_on_exit: bool = True,
     ):
         self.source_dir = Path(source_dir).resolve()
-        self.exclude_patterns = (
-            list(exclude_patterns)
-            if exclude_patterns is not None
-            else list(DEFAULT_EXCLUDE_PATTERNS)
+
+        # Staging exclusions: files that must NOT be copied into staging
+        if staging_exclude_patterns is not None:
+            self.staging_exclude_patterns = list(staging_exclude_patterns)
+        elif exclude_patterns is not None:
+            self.staging_exclude_patterns = list(exclude_patterns)
+        else:
+            self.staging_exclude_patterns = list(DEFAULT_STAGING_EXCLUDE_PATTERNS)
+
+        self.exclude_patterns = self.staging_exclude_patterns
+
+        # Immutability exclusions: paths deliberately excluded from source-preservation hashing
+        self.immutability_exclude_patterns = (
+            list(immutability_exclude_patterns)
+            if immutability_exclude_patterns is not None
+            else list(DEFAULT_IMMUTABILITY_EXCLUDE_PATTERNS)
         )
+
         self.verify_source_immutability = verify_source_immutability
         self.cleanup_on_exit = cleanup_on_exit
 
@@ -299,7 +364,8 @@ class SandboxManager:
         return cls(
             source_dir=config.input.project_dir,
             staging_parent=staging_parent,
-            exclude_patterns=config.input.exclude_patterns,
+            staging_exclude_patterns=config.input.exclude_patterns,
+            immutability_exclude_patterns=config.input.immutability_exclude_patterns,
             verify_source_immutability=config.input.verify_source_immutability,
             cleanup_on_exit=cleanup_on_exit,
         )
@@ -315,9 +381,10 @@ class SandboxManager:
             raise StagingError(f"Source path is not a directory: '{self.source_dir}'")
 
         # 1. Take initial SHA-256 snapshot for source preservation verification
+        # Sensitive files (*.jks, local.properties, .env) ARE included here!
         if self.verify_source_immutability:
             self.initial_manifest = compute_source_manifest(
-                self.source_dir, self.exclude_patterns
+                self.source_dir, self.immutability_exclude_patterns
             )
 
         # 2. Guard against invalid staging directory locations
@@ -394,7 +461,7 @@ class SandboxManager:
             return
 
         current_manifest = compute_source_manifest(
-            self.source_dir, self.exclude_patterns
+            self.source_dir, self.immutability_exclude_patterns
         )
         is_identical, discrepancies = self.initial_manifest.compare(current_manifest)
 
