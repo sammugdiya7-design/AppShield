@@ -329,3 +329,65 @@ def test_cli_verify_unimplemented_notice(tmp_path: Path, capsys):
         in captured.out
     )
     assert "No composite security scores will be generated." in captured.out
+
+
+def test_cli_protect_cli_overrides(tmp_path: Path, capsys):
+    """'appshield protect' applies CLI overrides for project-dir, output-dir, and platform."""
+    base_proj = tmp_path / "base_proj"
+    base_proj.mkdir()
+    override_proj = tmp_path / "override_proj"
+    override_proj.mkdir()
+    (override_proj / "gradlew").write_text("#!/bin/sh", encoding="utf-8")
+    override_out = tmp_path / "custom_dist"
+
+    cfg = tmp_path / "appshield.json"
+    cfg.write_text(
+        f"""{{
+        "version": "1.0",
+        "project_name": "override_app",
+        "platform": "android",
+        "input": {{ "project_dir": "{base_proj.as_posix()}" }},
+        "output": {{ "dir": "{tmp_path.as_posix()}/dist" }}
+    }}""",
+        encoding="utf-8",
+    )
+
+    mock_reports = [
+        ToolReport("Java Runtime (java)", True, "17.0.2", True, ""),
+        ToolReport("JAVA_HOME Variable", True, "/usr/lib/jvm/default", True, ""),
+        ToolReport("Gradle Build Tool", True, "gradlew", True, ""),
+    ]
+    with patch("appshield.cli.run_doctor_checks", return_value=mock_reports):
+        code = main(
+            [
+                "protect",
+                "-c",
+                str(cfg),
+                "--project-dir",
+                str(override_proj),
+                "--output-dir",
+                str(override_out),
+                "--platform",
+                "android",
+            ]
+        )
+
+    assert code == 0
+    captured = capsys.readouterr()
+    assert str(override_proj.resolve()) in captured.out
+    assert str(override_out.resolve()) in captured.out
+
+
+def test_cli_protect_generic_config_error(tmp_path: Path, capsys):
+    """'appshield protect' cleanly reports generic ConfigError."""
+    cfg = tmp_path / "dummy.json"
+    cfg.write_text("{}", encoding="utf-8")
+    from appshield.config import ConfigError
+
+    with patch(
+        "appshield.cli.load_config", side_effect=ConfigError("Generic parse issue")
+    ):
+        code = main(["protect", "-c", str(cfg)])
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "Configuration Error: Generic parse issue" in captured.err

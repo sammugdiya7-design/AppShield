@@ -144,7 +144,7 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Domain Research & Feasibility | 1/1 | Complete | 2026-10-24 |
 | 2. Specs & Threat Model | 1/1 | Complete (Planning) | 2026-10-24 |
-| 3. CLI Foundation & Sandboxing | 0/2 | Not started | - |
+| 3. CLI Foundation & Sandboxing | 1/2 | In progress | - |
 | 4. Android Pipeline & Verification | 0/2 | Not started | - |
 | 5. iOS Protection Engine | 0/1 | Not started | - |
 | 6. Windows Support | 0/1 | Not started | - |

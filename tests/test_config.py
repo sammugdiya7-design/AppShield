@@ -4,6 +4,7 @@ Unit tests for AppShield configuration loading, schema validation, and overwrite
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -276,3 +277,215 @@ def test_config_to_dict_safe(sample_gradle_dir: Path):
     assert '"password"' not in raw_json
     assert '"keystore_password"' not in raw_json
     assert '"key_password"' not in raw_json
+
+
+def test_load_config_file_read_error(tmp_path: Path):
+    """Test that file read errors raise ConfigError."""
+    cfg = tmp_path / "unreadable.json"
+    cfg.write_text("{}", encoding="utf-8")
+    with (
+        patch("pathlib.Path.read_text", side_effect=OSError("Read permission denied")),
+        pytest.raises(ConfigError) as exc,
+    ):
+        load_config(cfg)
+    assert "Failed to read configuration file" in str(exc.value)
+
+
+def test_load_config_file_no_extension(tmp_path: Path, sample_gradle_dir: Path):
+    """Test loading configuration from a file without standard extension."""
+    cfg = tmp_path / "appshield_custom"
+    data = {
+        "version": "1.0",
+        "project_name": "custom_app",
+        "platform": "android",
+        "input": {"project_dir": str(sample_gradle_dir)},
+        "output": {"dir": "dist"},
+    }
+    cfg.write_text(json.dumps(data), encoding="utf-8")
+    loaded = load_config(cfg)
+    assert loaded.project_name == "custom_app"
+
+
+def test_load_config_file_no_extension_yaml(tmp_path: Path, sample_gradle_dir: Path):
+    """Test loading YAML configuration from a file without standard extension."""
+    cfg = tmp_path / "appshield_custom_yaml"
+    data = {
+        "version": "1.0",
+        "project_name": "custom_yaml_app",
+        "platform": "android",
+        "input": {"project_dir": str(sample_gradle_dir)},
+        "output": {"dir": "dist"},
+    }
+    cfg.write_text(yaml.safe_dump(data), encoding="utf-8")
+    loaded = load_config(cfg)
+    assert loaded.project_name == "custom_yaml_app"
+
+
+def test_load_config_file_no_extension_malformed(tmp_path: Path):
+    """Test loading malformed YAML from a file without standard extension."""
+    cfg = tmp_path / "appshield_custom_bad"
+    cfg.write_text("{ unclosed: [", encoding="utf-8")
+    with pytest.raises(ConfigError) as exc:
+        load_config(cfg)
+    assert "Unsupported or malformed configuration" in str(exc.value)
+
+
+def test_config_not_a_dict(tmp_path: Path):
+    """Test that a non-dict root object raises ConfigValidationError."""
+    cfg = tmp_path / "list_root.json"
+    cfg.write_text("[1, 2, 3]", encoding="utf-8")
+    with pytest.raises(ConfigValidationError) as exc:
+        load_config(cfg)
+    assert "must define a top-level dictionary/object" in str(exc.value)
+
+
+def test_input_not_a_dict():
+    """Test that a non-dict 'input' section raises ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": "not a dict",
+        "output": {"dir": "dist"},
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "Missing required 'input' section" in str(exc.value)
+
+
+def test_input_missing_project_dir():
+    """Test that missing 'project_dir' in input section raises ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {},
+        "output": {"dir": "dist"},
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "Missing or invalid 'input.project_dir'" in str(exc.value)
+
+
+def test_input_invalid_exclude_patterns(sample_gradle_dir: Path):
+    """Test that non-string items in exclude_patterns raise ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {
+            "project_dir": str(sample_gradle_dir),
+            "exclude_patterns": [123, True],
+        },
+        "output": {"dir": "dist"},
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "'input.exclude_patterns' must be a list of string glob patterns" in str(
+        exc.value
+    )
+
+
+def test_output_not_a_dict(sample_gradle_dir: Path):
+    """Test that non-dict 'output' section raises ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {"project_dir": str(sample_gradle_dir)},
+        "output": "dist",
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "'output' section must be a dictionary" in str(exc.value)
+
+
+def test_output_dir_invalid(sample_gradle_dir: Path):
+    """Test that whitespace/empty 'output.dir' raises ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {"project_dir": str(sample_gradle_dir)},
+        "output": {"dir": "   "},
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "Invalid 'output.dir'" in str(exc.value)
+
+
+def test_android_not_a_dict(sample_gradle_dir: Path):
+    """Test that non-dict 'android' section raises ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {"project_dir": str(sample_gradle_dir)},
+        "output": {"dir": "dist"},
+        "android": "invalid",
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "'android' section must be a dictionary" in str(exc.value)
+
+
+def test_android_r8_rules_not_string(sample_gradle_dir: Path):
+    """Test that non-string 'android.r8_rules_file' raises ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {"project_dir": str(sample_gradle_dir)},
+        "output": {"dir": "dist"},
+        "android": {"r8_rules_file": 12345},
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "'android.r8_rules_file' must be a string path" in str(exc.value)
+
+
+def test_android_signing_not_a_dict(sample_gradle_dir: Path):
+    """Test that non-dict 'android.signing' raises ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {"project_dir": str(sample_gradle_dir)},
+        "output": {"dir": "dist"},
+        "android": {"signing": "enabled"},
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "'android.signing' must be a dictionary" in str(exc.value)
+
+
+def test_verification_not_a_dict(sample_gradle_dir: Path):
+    """Test that non-dict 'verification' section raises ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {"project_dir": str(sample_gradle_dir)},
+        "output": {"dir": "dist"},
+        "verification": "all",
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "'verification' section must be a dictionary" in str(exc.value)
+
+
+def test_verification_checks_not_list_of_strings(sample_gradle_dir: Path):
+    """Test that non-string items in 'verification.checks' raise ConfigValidationError."""
+    data = {
+        "version": "1.0",
+        "project_name": "test_app",
+        "platform": "android",
+        "input": {"project_dir": str(sample_gradle_dir)},
+        "output": {"dir": "dist"},
+        "verification": {"checks": [1, 2]},
+    }
+    with pytest.raises(ConfigValidationError) as exc:
+        validate_and_parse_config(data)
+    assert "'verification.checks' must be a list of check name strings" in str(
+        exc.value
+    )

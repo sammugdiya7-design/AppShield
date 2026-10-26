@@ -45,7 +45,7 @@ A simple, local, cross-platform application code-protection CLI for developers t
 ## 3. Current Phase & Progress
 
 - **Current Phase**: Phase 3: Core Python CLI Foundation, Workspace Isolation & Test Harness
-- **Current Plan**: 03-01 Complete (Python CLI Foundation, config validation, doctor checks, output overwrite guards, 29 pytest tests)
+- **Current Plan**: 03-01 Complete (Python CLI Foundation, config validation, doctor checks, output overwrite guards, 52 pytest tests, 99% coverage)
 - **Status**: Plan 03-01 Complete; Awaiting user review before Plan 03-02 (Workspace staging & test harness)
 - **Overall Progress**: 33% (Phases 1 & 2 complete; Phase 3 Plan 03-01 implemented and verified)
 
@@ -59,11 +59,12 @@ A simple, local, cross-platform application code-protection CLI for developers t
 - [x] Established root-level `MEMORY.md` and permanent project governance rules.
 - [x] Completed Phase 2 Specifications dossier (`.planning/specs/PHASE2_SPECIFICATIONS.md`) covering CLI schema, interfaces, report schema, R8 MVP, and test fixtures.
 - [x] Completed Plan 03-01: Python CLI Foundation:
-  - `pyproject.toml` configuration with editable package support.
+  - `pyproject.toml` configuration with editable package support and development dependencies.
+  - `README.md` created documenting project invariants, CLI usage, and test commands.
   - `appshield/cli.py`: Implemented CLI entry point and subcommands (`info`, `doctor`, `protect`, `verify`).
   - `appshield/config.py`: Implemented YAML/JSON configuration loader, schema validation, APK rejection, password masking, default exclusions, and `validate_output_destination` overwrite guard.
   - `appshield/doctor.py`: Local environment prerequisite detection (Java, Javac, `JAVA_HOME`, `ANDROID_HOME`, Gradle/gradlew, `zipalign`, `apksigner`).
-  - Automated tests: 29 unit tests in `tests/test_cli.py` and `tests/test_config.py` passing with 100% success rate.
+  - Automated tests: 52 unit tests in `tests/test_cli.py`, `tests/test_config.py`, and `tests/test_doctor.py` passing with 99% test coverage.
   - Linter (`ruff`), type checker (`mypy`), and security scanner (`bandit`) clean with zero issues.
 
 ### Pending Immediate Tasks
