@@ -78,16 +78,18 @@ Plans:
 **Depends on**: Phase 3  
 **Requirements**: AND-01, AND-02, AND-03, VER-01, VER-02, VER-03  
 **Success Criteria**:
-  1. `appshield doctor` verifies presence of Android build prerequisites (`java`, `gradlew`, Android SDK tools).
+  1. `appshield doctor` verifies presence of Android build prerequisites (`java`, `javac`, `gradlew`, Android SDK build-tools, platform-tools).
   2. `appshield protect --platform android` successfully processes an Android Gradle project via isolated staging, injecting R8 rules, invoking AGP build, and saving the protected APK to `dist/protected/`. Standalone precompiled APKs treated as unsupported.
   3. Output overwrite guard prevents accidental destruction of existing destination artifacts.
-  4. Signing workflow supports environment-variable-masked keystores without leaking credentials in logs or process tables; production signing requires explicit confirmation.
-  5. `appshield verify` executes objective empirical checks (renaming ratio, string scan, signature validity, zip alignment) and outputs `audit_report.json` with precise evidentiary classifications (no composite score).  
-**Plans**: 2 plans (04-01: Android Gradle pipeline adapter & signing, 04-02: Objective verification & honest report generator)
+  4. Signing workflow supports environment-variable-masked keystores without leaking credentials in logs or process tables; test-only signing used for fixture verification; production signing requires explicit confirmation.
+  5. `appshield verify` executes objective empirical checks (build success, APK validity, renaming ratio, string scan, signature validity, zip alignment) and outputs `audit_report.json` with precise evidentiary classifications (no composite score).  
+**Plans**: 4 plans (04-01: Adapter & R8 staging, 04-02: Safe build execution & signing, 04-03: Verification engine & string scanner, 04-04: CLI wiring & end-to-end matrix)
 
 Plans:
-- [ ] 04-01: Android Gradle pipeline adapter, toolchain discovery, and signing workflow.
-- [ ] 04-02: Objective verification engine, string pool scanner, and honest report generator.
+- [ ] 04-01: Android Gradle pipeline adapter, toolchain discovery, and R8 rule staging.
+- [ ] 04-02: Safe Gradle build execution, APK output extraction, and test signing.
+- [ ] 04-03: Empirical verification engine, string pool scanner, and mapping auditor.
+- [ ] 04-04: End-to-end CLI integration, automated test matrix, and security validation.
 
 ---
 
@@ -146,7 +148,7 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Domain Research & Feasibility | 1/1 | Complete | 2026-10-24 |
 | 2. Specs & Threat Model | 1/1 | Complete (Planning) | 2026-10-24 |
 | 3. CLI Foundation & Sandboxing | 3/3 | Complete | 2026-10-27 |
-| 4. Android Pipeline & Verification | 0/2 | Not started | - |
+| 4. Android Pipeline & Verification | 0/4 | Planning | - |
 | 5. iOS Protection Engine | 0/1 | Not started | - |
 | 6. Windows Support | 0/1 | Not started | - |
 | 7. Portfolio Release | 0/1 | Not started | - |

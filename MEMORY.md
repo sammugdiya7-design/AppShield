@@ -44,10 +44,10 @@ A simple, local, cross-platform application code-protection CLI for developers t
 
 ## 3. Current Phase & Progress
 
-- **Current Phase**: Phase 3: Core Python CLI Foundation, Workspace Isolation & Test Harness (Phase Complete)
-- **Current Plan**: 03-03 Complete (Disposable Android Gradle Test Fixture and Integration Harness)
-- **Status**: Phase 3 Complete (Plans 03-01, 03-02, 03-03 verified); Awaiting user review before Phase 4 (Android Protection Pipeline & Verification Engine)
-- **Overall Progress**: 50% (Phases 1, 2, & 3 complete; 5 of 10 total plans completed)
+- **Current Phase**: Phase 4: Android Protection Pipeline & Verification Engine (Planning)
+- **Current Plan**: Planning Phase 4 (Plans 04-01 through 04-04 decomposed and specified)
+- **Status**: Phase 3 Complete (Plans 03-01, 03-02, 03-03 verified); Phase 4 implementation plan presented for user review
+- **Overall Progress**: 42% (Phases 1, 2, & 3 complete; 5 of 12 total plans completed)
 
 ---
 
@@ -85,9 +85,12 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Added 10 automated integration tests in `tests/test_integration_fixture.py` (total 93 tests across suite) passing with 95% code coverage.
   - Tests verify structure, supported project detection, source preservation, sensitive file exclusion, path/symlink safety, prerequisite diagnostic messages, and safely distinguish live vs. simulated builds under offline/safe testing boundaries.
 
-### Pending Immediate Tasks
-- [ ] Obtain user review and approval for Phase 3 completion (Plans 03-01, 03-02, 03-03).
-- [ ] Begin Phase 4: Android Protection Pipeline & Verification Engine (Plan 04-01: Android Gradle pipeline adapter & signing).
+### Pending Tasks (Phase 4 Decomposed Plans)
+- [ ] Review and user approval of Phase 4 Implementation Plan.
+- [ ] Plan 04-01: Android Gradle Pipeline Adapter, Toolchain Discovery & R8 Rule Staging.
+- [ ] Plan 04-02: Safe Gradle Build Execution, APK Output Extraction & Test Signing.
+- [ ] Plan 04-03: Empirical Verification Engine, String Pool Scanner & Mapping Auditor.
+- [ ] Plan 04-04: End-to-End CLI Integration, Automated Test Matrix & Security Validation.
 
 ---
 
