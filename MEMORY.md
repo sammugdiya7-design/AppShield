@@ -44,10 +44,10 @@ A simple, local, cross-platform application code-protection CLI for developers t
 
 ## 3. Current Phase & Progress
 
-- **Current Phase**: Phase 3: Core Python CLI Foundation, Workspace Isolation & Test Harness
-- **Current Plan**: 03-02 Complete (Sandbox Manager, source immutability guard, sensitive file exclusion, 75 pytest tests, 96% coverage)
-- **Status**: Plan 03-02 Complete; Awaiting user review before Plan 03-03 (Disposable Android test fixture & harness)
-- **Overall Progress**: 40% (Phases 1 & 2 complete; Phase 3 Plans 03-01 & 03-02 complete; 4 of 10 total plans completed)
+- **Current Phase**: Phase 3: Core Python CLI Foundation, Workspace Isolation & Test Harness (Phase Complete)
+- **Current Plan**: 03-03 Complete (Disposable Android Gradle Test Fixture and Integration Harness)
+- **Status**: Phase 3 Complete (Plans 03-01, 03-02, 03-03 verified); Awaiting user review before Phase 4 (Android Protection Pipeline & Verification Engine)
+- **Overall Progress**: 50% (Phases 1, 2, & 3 complete; 5 of 10 total plans completed)
 
 ---
 
@@ -75,12 +75,19 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Failure recovery: Staging failures and errors trigger automatic, safe cleanup of the temporary sandbox without touching external files.
   - Security defenses: Path traversal guards on staging and artifact export; symlink escaping checks; Windows read-only attribute handling.
   - Output safeguards: `export_artifact` enforces destination existence checks and overwrite protection.
-  - Automated tests: 31 unit tests in `tests/test_sandbox.py` (total 83 tests across suite) passing with 95% coverage.
+  - Automated tests: 31 unit tests in `tests/test_sandbox.py` passing with 95% coverage.
   - Static analysis: `ruff`, `mypy`, and `bandit` passing with 0 warnings.
+- [x] Completed Plan 03-03: Disposable Android Gradle Test Fixture and Integration Harness:
+  - Created controlled disposable Android Gradle project fixture in `tests/fixtures/sample_android_gradle_project/` with standard structure (`gradlew`, `gradlew.bat`, `gradle-wrapper.properties`, `settings.gradle`, `build.gradle`, `app/build.gradle`, `app/proguard-rules.pro`, `AndroidManifest.xml`, `strings.xml`, `MainActivity.java`, `IdentifiableSecretService.java`, `PaymentSecurityValidator.java`, `appshield.yaml`, `README.md`).
+  - Included identifiable test symbols (`IdentifiableSecretService`, `PaymentSecurityValidator`, `processUserTokenAndCalculateHash`, `calculateInternalSecurityChecksum`, `validateTransactionToken`) and non-sensitive strings (`APP_SHIELD_TEST_STRING_LITERAL_XYZ`, `DISPOSABLE_TEST_PAYMENT_SECRET_TOKEN`, `NON_SENSITIVE_VALIDATION_SCHEME_V1`) for future R8 verification.
+  - Zero real secrets, private keys, or personal credentials contained in fixture.
+  - Implemented `is_android_gradle_project` in `appshield/doctor.py` and exported in `appshield/__init__.py`. Integrated into `run_doctor_checks` when `--project-dir` is provided.
+  - Added 10 automated integration tests in `tests/test_integration_fixture.py` (total 93 tests across suite) passing with 95% code coverage.
+  - Tests verify structure, supported project detection, source preservation, sensitive file exclusion, path/symlink safety, prerequisite diagnostic messages, and safely distinguish live vs. simulated builds under offline/safe testing boundaries.
 
 ### Pending Immediate Tasks
-- [ ] Obtain user review and approval for Plan 03-02.
-- [ ] Plan 03-03: Disposable Android Gradle test fixture (`tests/fixtures/sample_android_gradle_project/`) and end-to-end integration test harness.
+- [ ] Obtain user review and approval for Phase 3 completion (Plans 03-01, 03-02, 03-03).
+- [ ] Begin Phase 4: Android Protection Pipeline & Verification Engine (Plan 04-01: Android Gradle pipeline adapter & signing).
 
 ---
 

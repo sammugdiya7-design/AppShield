@@ -1,0 +1,32 @@
+version: "1.0"
+project_name: "sample_android_gradle_project"
+platform: "android"
+
+input:
+  project_dir: "."
+  verify_source_immutability: true
+  exclude_patterns:
+    - ".git/**"
+    - "build/**"
+    - "**/build/**"
+    - ".gradle/**"
+    - "**/*.jks"
+    - "**/*.keystore"
+    - "local.properties"
+    - "**/*.env*"
+    - "**/google-services.json"
+
+output:
+  dir: "./dist/protected"
+  overwrite_existing: false
+
+android:
+  project_type: "gradle"
+  build_variant: "release"
+  gradle_task: "assembleRelease"
+  signing:
+    enabled: false
+
+verification:
+  enabled: true
+  fail_on_check_failure: false

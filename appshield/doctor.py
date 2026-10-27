@@ -210,4 +210,66 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
         )
     )
 
+    # 7. Android Gradle Project Structure (if project_dir is provided)
+    if project_dir is not None:
+        is_supported, reasons = is_android_gradle_project(project_dir)
+        reports.append(
+            ToolReport(
+                name="Android Gradle Project Structure",
+                is_available=is_supported,
+                version="Supported Android Gradle Project" if is_supported else None,
+                required=True,
+                remediation_hint="; ".join(reasons) if not is_supported else "",
+                path=str(project_dir.resolve()),
+            )
+        )
+
     return reports
+
+
+def is_android_gradle_project(project_dir: Path) -> tuple[bool, list[str]]:
+    """
+    Inspect a directory to determine if it is a supported Android Gradle project.
+    Checks for:
+      - Directory existence
+      - Gradle wrapper script ('gradlew' or 'gradlew.bat')
+      - Settings file ('settings.gradle' or 'settings.gradle.kts')
+      - Application build file ('app/build.gradle' or 'build.gradle')
+    Returns (is_supported, missing_reasons).
+    """
+    resolved = project_dir.resolve()
+    reasons: list[str] = []
+
+    if not resolved.exists():
+        return False, [f"Project directory does not exist: '{resolved}'"]
+    if not resolved.is_dir():
+        return False, [f"Project path is not a directory: '{resolved}'"]
+
+    has_gradlew = (resolved / "gradlew").is_file() or (
+        resolved / "gradlew.bat"
+    ).is_file()
+    if not has_gradlew:
+        reasons.append(
+            "Missing Gradle wrapper script ('gradlew' or 'gradlew.bat') in project root"
+        )
+
+    has_settings = (resolved / "settings.gradle").is_file() or (
+        resolved / "settings.gradle.kts"
+    ).is_file()
+    if not has_settings:
+        reasons.append(
+            "Missing Gradle settings file ('settings.gradle' or 'settings.gradle.kts')"
+        )
+
+    has_app_build = (
+        (resolved / "app" / "build.gradle").is_file()
+        or (resolved / "app" / "build.gradle.kts").is_file()
+        or (resolved / "build.gradle").is_file()
+        or (resolved / "build.gradle.kts").is_file()
+    )
+    if not has_app_build:
+        reasons.append(
+            "Missing Android application build file ('app/build.gradle' or 'build.gradle')"
+        )
+
+    return len(reasons) == 0, reasons

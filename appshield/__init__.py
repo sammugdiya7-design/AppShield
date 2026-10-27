@@ -2,6 +2,11 @@
 AppShield: A simple, local, cross-platform application code-protection CLI.
 """
 
+from appshield.doctor import (
+    ToolReport,
+    is_android_gradle_project,
+    run_doctor_checks,
+)
 from appshield.sandbox import (
     SandboxContext,
     SandboxError,
@@ -24,5 +29,8 @@ __all__ = [
     "SourceImmutabilityError",
     "SourceManifest",
     "StagingError",
+    "ToolReport",
     "__version__",
+    "is_android_gradle_project",
+    "run_doctor_checks",
 ]

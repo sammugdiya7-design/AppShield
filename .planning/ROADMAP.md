@@ -69,7 +69,7 @@ Plans:
 Plans:
 - [x] 03-01: CLI scaffolding, subcommand registration, and config loader.
 - [x] 03-02: Workspace sandbox manager, sensitive file exclusion, and source immutability verification.
-- [ ] 03-03: Disposable Android Gradle test fixture and end-to-end integration test harness.
+- [x] 03-03: Disposable Android Gradle test fixture and end-to-end integration test harness.
 
 ---
 
@@ -145,7 +145,7 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Domain Research & Feasibility | 1/1 | Complete | 2026-10-24 |
 | 2. Specs & Threat Model | 1/1 | Complete (Planning) | 2026-10-24 |
-| 3. CLI Foundation & Sandboxing | 2/3 | In progress | - |
+| 3. CLI Foundation & Sandboxing | 3/3 | Complete | 2026-10-27 |
 | 4. Android Pipeline & Verification | 0/2 | Not started | - |
 | 5. iOS Protection Engine | 0/1 | Not started | - |
 | 6. Windows Support | 0/1 | Not started | - |
