@@ -22,12 +22,18 @@ for AppShield automated integration testing and verification.
   - `"DISPOSABLE_TEST_PAYMENT_SECRET_TOKEN"`
   - `"NON_SENSITIVE_VALIDATION_SCHEME_V1"`
 
-## Build Prerequisites (When Executing Live Builds)
-- **JDK**: OpenJDK 17 or higher (`JAVA_HOME` configured)
-- **Android SDK**: Android API Level 34 (`platforms;android-34`) and Build-Tools 34.0.0
-- **Gradle**: 8.2 or higher (via bundled `gradlew` wrapper)
+## Build Prerequisites & Toolchain Status
+- **JDK**: OpenJDK 17 (`JAVA_HOME` configured)
+- **Android SDK**: Android API Level 34 (`platforms;android-34`) and Build-Tools 34.0.0 (`zipalign`, `apksigner`)
+- **Gradle**: 8.2 (via `gradle-8.2-bin.zip` specified in `gradle-wrapper.properties`)
 - **Android Gradle Plugin (AGP)**: 8.2.2
+- **Wrapper Files Present**:
+  - `gradlew` (POSIX shell script)
+  - `gradlew.bat` (Windows command script)
+  - `gradle/wrapper/gradle-wrapper.properties` (Distribution URL definition)
+  - *Note*: `gradle-wrapper.jar` is deliberately omitted from git tracking. In a live environment, wrapper execution requires either the wrapper JAR or a system-installed Gradle distribution.
 
 ## Execution & Security Policy
 - Automated tests MUST NEVER execute build scripts from arbitrary or untrusted external projects.
 - Live build tests must execute strictly against this repository-controlled fixture inside an isolated ephemeral staging directory.
+- **Download Safety**: Standard Gradle Wrapper operations can download the Gradle distribution archive before executing Gradle commands. AppShield strictly forbids silent network downloads. Offline live execution requires the Gradle distribution to be pre-cached in `~/.gradle/wrapper/dists/` or fails with a descriptive missing-dependency error.

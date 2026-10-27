@@ -12,17 +12,16 @@ The developer's original source code and signing credentials remain completely u
 
 ### Validated
 
-(None yet — ship to validate)
+- **CLI-01**: Python-based cross-platform CLI supporting modular commands (`protect`, `verify`, `info`, `doctor`) — Validated in Phase 3.
+- **ISO-01**: Source tree immutability guarantee — original source files and build configurations are opened read-only and never modified in place — Validated in Phase 3.
+- **ISO-02**: Staged build execution in isolated temporary workspaces with sensitive file exclusions and dedicated output artifact directories — Validated in Phase 3.
+- **SEC-01**: Zero remote network transmission — no source code, telemetry, or signing keys/keystores ever leave the host machine — Validated in Phase 3.
 
 ### Active
 
-- [ ] **CLI-01**: Python-based cross-platform CLI supporting modular commands (`protect`, `verify`, `info`, `doctor`).
-- [ ] **ISO-01**: Source tree immutability guarantee — original source files and build configurations are opened read-only and never modified in place.
-- [ ] **ISO-02**: Staged build execution in isolated temporary workspaces with sensitive file exclusions and dedicated output artifact directories.
 - [ ] **ENG-01**: Integration of verified Android protection workflows (leveraging Android Gradle Plugin and R8 toolchain on supported Android Gradle projects).
 - [ ] **VER-01**: Automated post-protection verification (symbol renaming ratio, string table inspection, signature integrity, and zip alignment).
 - [ ] **VER-02**: Honest reporting engine — outputs objective evidence metrics without subjective composite scores and without claiming reverse engineering is impossible.
-- [ ] **SEC-01**: Zero remote network transmission — no source code, telemetry, or signing keys/keystores ever leave the host machine.
 - [ ] **ENG-02**: Pluggable architecture ready for iOS (Phase 5) and Windows (Phase 6) pipelines.
 
 ### Out of Scope
