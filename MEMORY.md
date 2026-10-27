@@ -36,9 +36,13 @@ A simple, local, cross-platform application code-protection CLI for developers t
 | **Licensing Boundary** | MIT/Apache core; GPL tools run strictly as external CLI subprocesses | Prevents viral GPL contamination of the AppShield codebase. |
 | **Platform Strategy** | Phased rollout: Android (v1) -> iOS (v2) -> Windows (v2) | Focuses engineering effort on the highest-demand, most accessible mobile platform first. |
 | **Objective Verification** | Empirical checks only; no composite "resistance score" | Opaque numerical scores provide a false sense of security; objective counts and percentages provide auditable truth. |
-| **Android MVP Engine** | Official Google R8 CLI + `zipalign` + `apksigner` | Reliable, modern industry standard; avoids custom bytecode decompiler bugs. |
+| **Android MVP Engine** | Official Google R8 via AGP 8.2.2 + `zipalign` + `apksigner` | Reliable, modern industry standard; avoids custom bytecode decompiler bugs. |
+| **Toolchain Standard** | JDK 17 + Gradle 8.2 + AGP 8.2.2 + SDK 34 + Build-Tools 34.0.0 | Single tested, compatible version matrix matched to sample fixture. |
 | **Credential Masking** | Passwords referenced exclusively via env var names | Eliminates plaintext credentials from CLI flags, process lists, and disk files. |
-| **Disposable Test Fixtures** | Isolated sample APK (`mini_app.apk`) for test suites | Satisfies safety rule: destructive/mutating operations run exclusively on disposable fixtures. |
+| **Disposable Test Fixtures** | Isolated sample Android Gradle project (`sample_android_gradle_project`) for test suites | Satisfies safety rule: destructive/mutating operations run exclusively on disposable fixtures. |
+| **Simulation Barrier** | Simulation strictly isolated in test suite; production CLI stops if toolchain missing | Never emit fake or simulated APKs to `dist/protected/`; protection claims require real builds. |
+| **Mapping Protection** | R8 `mapping.txt` kept out of public output, logs, and git; secure retention optional | Prevents deobfuscation leakage while allowing crash-trace retention at separate path. |
+| **Signing Sequence** | Build -> zipalign unsigned -> apksigner -> apksigner verify -> zipalign -c | Never modify APK after signing. Test-signed only for fixture; production signing opt-in. |
 
 ---
 
@@ -125,7 +129,12 @@ A simple, local, cross-platform application code-protection CLI for developers t
 - **Sensitive File Exclusion from Staging**: Staging copies strictly exclude `.git/`, `build/`, `.gradle/`, `*.jks`, `*.keystore`, `local.properties`, `*.env*`, and `google-services.json` to prevent leaking credentials into build outputs.
 - **Sensitive File Inclusion in Immutability Checks**: Sensitive files are NEVER excluded from source-immutability checks. They are cryptographically hashed and verified before and after execution.
 - **Documented Immutability Exclusions**: Only `.git/**` (internal VCS state) and `.appshield_staging/**` / `.appshield_cache/**` (tool-managed temporary directories) are deliberately excluded from immutability checks.
-- **No Automatic Production Signing**: Signing is disabled by default; production signing requires explicit confirmation.
+- **No Automatic Production Signing**: Signing is disabled by default; production signing requires explicit confirmation. Unsigned builds are exported as aligned, unsigned APKs with `CHK-SIG-01` reported as `UNSUPPORTED (Signing disabled / unconfigured)`. Initial verification fixture uses a disposable test keystore clearly labeled as test-signed.
+- **Correct Signing & Alignment Order**: 1. Build APK -> 2. Run `zipalign` on unsigned APK -> 3. Sign aligned APK with `apksigner` -> 4. Verify signature with `apksigner verify` -> 5. Confirm alignment with `zipalign -c -v 4` without modifying signed APK. Never modify an APK after signing.
+- **R8 Mapping File Protection**: `mapping.txt` is never copied to the public output directory (`dist/protected/`) by default, never logged, and never committed to Git. Secure retention at a developer-specified location (`--mapping-out`) is supported for crash-trace deobfuscation. Verification reads the mapping file in staging strictly to compute aggregate statistics without disclosing raw mappings.
+- **Strict Separation Between Simulation & Real Protection**: Production CLI execution requires the actual toolchain. If prerequisites (JDK 17, Android SDK, gradlew, build-tools) are missing, AppShield reports missing items and stops. Simulation/mock harnesses reside strictly within automated tests and never emit fake artifacts to `dist/protected/`.
+- **Narrowed Initial R8 Scope**: Initial R8 integration enables code shrinking and obfuscation (`minifyEnabled true`); resource shrinking (`shrinkResources`) remains disabled initially. Modifications match the project's actual Groovy DSL without regex rewriting; unsupported projects fail cleanly.
+- **Dual-Evidence Verification**: `CHK-SYM-01` inspects both `mapping.txt` and actual output `classes.dex` class descriptors to verify that fixture symbols were actually removed from DEX bytecode.
 - **No Overwriting Artifacts**: Existing destination files are never overwritten without explicit `--overwrite` or `overwrite_existing: true`.
 - **Zero Logged Credentials**: Passwords referenced exclusively via environment variable names; never passed in CLI flags, printed in reports, or logged.
 

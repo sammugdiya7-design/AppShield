@@ -9,15 +9,15 @@ Requirements committed for v1 release (Phases 1–4).
 
 ### Core CLI & Configuration
 
-- [ ] **CLI-01**: User can execute the unified `appshield` CLI across platforms (Windows, macOS, Linux) with subcommands: `protect`, `verify`, `doctor`, and `info`.
-- [ ] **CLI-02**: User can configure target paths, rules, and engines via `appshield.yaml` / `appshield.json` or CLI flags.
-- [ ] **CLI-03**: CLI enforces 100% offline local execution with zero network telemetry and no outbound network calls.
+- [x] **CLI-01**: User can execute the unified `appshield` CLI across platforms (Windows, macOS, Linux) with subcommands: `protect`, `verify`, `doctor`, and `info`.
+- [x] **CLI-02**: User can configure target paths, rules, and engines via `appshield.yaml` / `appshield.json` or CLI flags.
+- [x] **CLI-03**: CLI enforces 100% offline local execution with zero network telemetry and no outbound network calls.
 
 ### Isolation & Workspace Safety
 
-- [ ] **ISO-01**: Source tree immutability — original source files and build configurations are treated as strictly read-only and never modified in place.
-- [ ] **ISO-02**: Staged build execution — all intermediate transformation, R8 rule injection, and build steps take place in isolated temporary staging workspaces with sensitive file exclusions (`.git`, `build`, `*.jks`, `local.properties`, `.env`).
-- [ ] **ISO-03**: Clean artifact output & overwrite guard — hardened outputs are written to a designated, distinct output folder (e.g., `dist/protected/`); existing artifacts are never overwritten without explicit user confirmation.
+- [x] **ISO-01**: Source tree immutability — original source files and build configurations are treated as strictly read-only and never modified in place.
+- [x] **ISO-02**: Staged build execution — all intermediate transformation, R8 rule injection, and build steps take place in isolated temporary staging workspaces with sensitive file exclusions (`.git`, `build`, `*.jks`, `local.properties`, `.env`).
+- [x] **ISO-03**: Clean artifact output & overwrite guard — hardened outputs are written to a designated, distinct output folder (e.g., `dist/protected/`); existing artifacts are never overwritten without explicit user confirmation.
 
 ### Android Protection Engine
 
@@ -33,10 +33,10 @@ Requirements committed for v1 release (Phases 1–4).
 
 ### Permanent Review & Governance
 
-- [ ] **GOV-01**: Automated test execution harness (`pytest`) integrated and enforced across every task, plan, and code change.
+- [x] **GOV-01**: Automated test execution harness (`pytest`) integrated and enforced across every task, plan, and code change.
 - [ ] **GOV-02**: Execution of the mandatory 10-step full review process (tests, code review, static analysis/linting/typing, security scans, secret/file safety checks, complexity checks, acceptance checks, honest status reporting, MEMORY.md sync, change summary).
-- [ ] **GOV-03**: Zero-credential leakage assurance — strict masking and prevention of private signing keys, keystore passwords, or sensitive application code appearing in logs, temp files, or version control.
-- [ ] **GOV-04**: Disposable sample test policy — all destructive or mutating operations run strictly on disposable fixtures (`tests/fixtures/sample_android_gradle_project/`); developer source files remain untouched.
+- [x] **GOV-03**: Zero-credential leakage assurance — strict masking and prevention of private signing keys, keystore passwords, or sensitive application code appearing in logs, temp files, or version control.
+- [x] **GOV-04**: Disposable sample test policy — all destructive or mutating operations run strictly on disposable fixtures (`tests/fixtures/sample_android_gradle_project/`); developer source files remain untouched.
 
 ## v2 Requirements
 
@@ -73,22 +73,22 @@ Explicitly excluded to protect project safety, focus, and integrity.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLI-01 | Phase 3 | Pending |
-| CLI-02 | Phase 3 | Pending |
-| CLI-03 | Phase 3 | Pending |
-| ISO-01 | Phase 3 | Pending |
-| ISO-02 | Phase 3 | Pending |
-| ISO-03 | Phase 3 | Pending |
+| CLI-01 | Phase 3 | Complete |
+| CLI-02 | Phase 3 | Complete |
+| CLI-03 | Phase 3 | Complete |
+| ISO-01 | Phase 3 | Complete |
+| ISO-02 | Phase 3 | Complete |
+| ISO-03 | Phase 3 | Complete |
 | AND-01 | Phase 4 | Pending |
 | AND-02 | Phase 4 | Pending |
 | AND-03 | Phase 4 | Pending |
 | VER-01 | Phase 4 | Pending |
 | VER-02 | Phase 4 | Pending |
 | VER-03 | Phase 4 | Pending |
-| GOV-01 | Phase 3 | Pending |
+| GOV-01 | Phase 3 | Complete |
 | GOV-02 | Phase 1–7 | In Progress |
-| GOV-03 | Phase 3 | Pending |
-| GOV-04 | Phase 3 | Pending |
+| GOV-03 | Phase 3 | Complete |
+| GOV-04 | Phase 3 | Complete |
 | IOS-01 | Phase 5 | Deferred (v2) |
 | IOS-02 | Phase 5 | Deferred (v2) |
 | WIN-01 | Phase 6 | Deferred (v2) |

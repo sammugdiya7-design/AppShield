@@ -38,6 +38,15 @@ htmlcov/
 .appshield_cache/
 dist/protected/
 
+# Android build outputs, keystores, and R8 mapping files
+.gradle/
+*.jks
+*.keystore
+mapping.txt
+**/mapping.txt
+**/outputs/mapping/
+
 # OS
 .DS_Store
 Thumbs.db
+
