@@ -163,11 +163,24 @@ def cmd_doctor(project_dir: Path | None = None) -> int:
         if item.is_available:
             ver_text = f"         Version/Path: {item.version or item.path}"
             print(ver_text)
+            if item.target_version:
+                print(f"         Target Vers : {item.target_version}")
         else:
+            if item.target_version:
+                print(f"         Target Vers : {item.target_version}")
             if item.required:
                 all_required_ok = False
             print(f"         Remediation : {item.remediation_hint}")
 
+    print("-----------------------------------------------------------------")
+    print("Toolchain Validation Status:")
+    print("  [INFO] Live Builds Validated : 0")
+    print(
+        "  Note : Selected target versions are based on AGP compatibility documentation."
+    )
+    print(
+        "         Toolchain compatibility has not yet been validated through a successful live build."
+    )
     print("-----------------------------------------------------------------")
     if all_required_ok:
         print("Status: All required prerequisites are met.")

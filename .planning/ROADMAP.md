@@ -86,7 +86,7 @@ Plans:
 **Plans**: 4 plans (04-01: Adapter & R8 staging, 04-02: Safe build execution & signing, 04-03: Verification engine & string scanner, 04-04: CLI wiring & end-to-end matrix)
 
 Plans:
-- [ ] 04-01: Android Gradle pipeline adapter, toolchain discovery, and R8 rule staging.
+- [x] 04-01: Android Gradle pipeline adapter, toolchain discovery, and R8 rule staging.
 - [ ] 04-02: Safe Gradle build execution, APK output extraction, and test signing.
 - [ ] 04-03: Empirical verification engine, string pool scanner, and mapping auditor.
 - [ ] 04-04: End-to-end CLI integration, automated test matrix, and security validation.
@@ -148,7 +148,7 @@ Phases execute in order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Domain Research & Feasibility | 1/1 | Complete | 2026-10-24 |
 | 2. Specs & Threat Model | 1/1 | Complete (Planning) | 2026-10-24 |
 | 3. CLI Foundation & Sandboxing | 3/3 | Complete | 2026-10-27 |
-| 4. Android Pipeline & Verification | 0/4 | Planning | - |
+| 4. Android Pipeline & Verification | 1/4 | In Progress | - |
 | 5. iOS Protection Engine | 0/1 | Not started | - |
 | 6. Windows Support | 0/1 | Not started | - |
 | 7. Portfolio Release | 0/1 | Not started | - |

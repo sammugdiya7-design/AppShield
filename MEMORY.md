@@ -48,10 +48,10 @@ A simple, local, cross-platform application code-protection CLI for developers t
 
 ## 3. Current Phase & Progress
 
-- **Current Phase**: Phase 4: Android Protection Pipeline & Verification Engine (Planning)
-- **Current Plan**: Planning Phase 4 (Plans 04-01 through 04-04 decomposed and specified)
-- **Status**: Phase 3 Complete (Plans 03-01, 03-02, 03-03 verified); Phase 4 implementation plan presented for user review
-- **Overall Progress**: 42% (Phases 1, 2, & 3 complete; 5 of 12 total plans completed)
+- **Current Phase**: Phase 4: Android Protection Pipeline & Verification Engine
+- **Current Plan**: Plan 04-01 Complete; Plan 04-02 Pending
+- **Status**: Plan 04-01 verified (Android adapter, toolchain discovery, safe R8 rule staging); ready for user review
+- **Overall Progress**: 50% (Phases 1, 2, & 3 complete; 6 of 12 total plans completed)
 
 ---
 
@@ -88,10 +88,15 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Implemented `is_android_gradle_project` in `appshield/doctor.py` and exported in `appshield/__init__.py`. Integrated into `run_doctor_checks` when `--project-dir` is provided.
   - Added 10 automated integration tests in `tests/test_integration_fixture.py` (total 93 tests across suite) passing with 95% code coverage.
   - Tests verify structure, supported project detection, source preservation, sensitive file exclusion, path/symlink safety, prerequisite diagnostic messages, and safely distinguish live vs. simulated builds under offline/safe testing boundaries.
+- [x] Completed Plan 04-01: Android Gradle Pipeline Adapter, Toolchain Discovery, and R8 Rule Staging:
+  - `appshield/adapters/base.py`: Defined abstract `PlatformAdapter` contract, structured dataclasses (`PrerequisiteCheck`, `ProjectInspection`, `ProtectionResult`), and custom exception hierarchy (`AdapterError`, `UnsupportedProjectError`, `ConfigurationInspectionError`, `RuleStagingError`).
+  - `appshield/adapters/android.py`: Implemented `AndroidPipelineAdapter`, supported project detection, standalone precompiled APK rejection, multi-module layout inspection, release minification checking (`minifyEnabled true`), rules file validation, safe R8 rule staging into isolated staging sandbox, and defense against accidental test symbol keep-rules.
+  - `appshield/adapters/__init__.py`: Exported public adapter API.
+  - Extended `appshield/doctor.py` and `appshield/cli.py`: Integrated JDK 17, `JAVA_HOME`, Android SDK, `ANDROID_HOME`, Platform 34, Build-Tools 34.0.0 (`zipalign`, `apksigner`), Wrapper scripts/distribution URL (Gradle 8.2), missing `gradle-wrapper.jar` detection, AGP version extraction, and R8 release configuration verification. Formatted doctor output to distinguish detected versions, selected target versions, and live build validation status (0 live builds validated).
+  - Automated tests: Added 28 unit tests in `tests/test_android_adapter.py` and 9 tests in `tests/test_doctor.py` (total 124 tests in test suite) passing with 94% overall code coverage.
+  - Zero live builds executed; zero remote downloads or network requests triggered; original source preserved and unchanged.
 
 ### Pending Tasks (Phase 4 Decomposed Plans)
-- [ ] Review and user approval of Phase 4 Implementation Plan.
-- [ ] Plan 04-01: Android Gradle Pipeline Adapter, Toolchain Discovery & R8 Rule Staging.
 - [ ] Plan 04-02: Safe Gradle Build Execution, APK Output Extraction & Test Signing.
 - [ ] Plan 04-03: Empirical Verification Engine, String Pool Scanner & Mapping Auditor.
 - [ ] Plan 04-04: End-to-End CLI Integration, Automated Test Matrix & Security Validation.
