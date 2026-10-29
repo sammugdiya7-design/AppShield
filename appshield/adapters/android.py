@@ -16,8 +16,15 @@ from appshield.adapters.base import (
     ProtectionResult,
     RuleStagingError,
 )
-from appshield.config import AppShieldConfig
+from appshield.config import AppShieldConfig, validate_output_destination
 from appshield.doctor import run_doctor_checks
+from appshield.gradle import (
+    GradleRunner,
+    locate_build_apk,
+    locate_r8_mapping,
+)
+from appshield.sandbox import SandboxManager
+from appshield.signing import align_and_sign_apk
 
 # Standard AppShield R8 hardening rules to inject into staging workspace
 APPSHIELD_STANDARD_R8_RULES = """
@@ -513,12 +520,161 @@ class AndroidPipelineAdapter(PlatformAdapter):
     def stage_and_protect(
         self,
         config: AppShieldConfig,
+        allow_production_signing: bool = False,
+        runner: GradleRunner | None = None,
     ) -> ProtectionResult:
         """
-        Build execution and R8 protection is not implemented in Plan 04-01.
-        Scheduled for Plan 04-02.
+        Execute the full Android protection pipeline:
+          1. Validate project layout and release build configuration.
+          2. Check host toolchain prerequisites; halt safely if required tools are missing.
+          3. Validate output destination overwrite guards.
+          4. Stage project in ephemeral sandbox with sensitive exclusions.
+          5. Inject AppShield R8 protection rules into staging rules file.
+          6. Execute release build task via GradleRunner in sandbox.
+          7. Locate and validate the generated release APK and R8 mapping.
+          8. Align and sign the APK inside the sandbox.
+          9. Safely export the protected artifact to destination directory.
+          10. Verify original source tree immutability.
         """
-        raise NotImplementedError(
-            "Protection build execution (GradleRunner/R8) is not implemented in Plan 04-01. "
-            "Plan 04-01 covers adapter validation, toolchain discovery, and rule staging only."
+        # 1. Validate project structure
+        inspection = self.validate_project(config.input.project_dir)
+        if not inspection.is_supported:
+            return ProtectionResult(
+                success=False,
+                protected_artifact_path=None,
+                logs=["Project validation failed."],
+                error_message=f"Cannot protect project: {'; '.join(inspection.errors)}",
+                metadata={"validation_errors": inspection.errors},
+            )
+
+        # 2. Check prerequisites if running with default runner
+        if runner is None:
+            checks = self.check_prerequisites(config.input.project_dir)
+            missing = [c for c in checks if c.required and not c.is_available]
+            if missing:
+                error_lines = [
+                    f"  - {c.tool_name}: {c.remediation_hint}" for c in missing
+                ]
+                return ProtectionResult(
+                    success=False,
+                    protected_artifact_path=None,
+                    logs=[
+                        f"Prerequisite check failed: {len(missing)} required toolchain dependencies missing."
+                    ],
+                    error_message=(
+                        "Cannot proceed with Android protection: missing required toolchain prerequisites:\n"
+                        + "\n".join(error_lines)
+                    ),
+                    metadata={"missing_dependencies": [c.tool_name for c in missing]},
+                )
+
+        # 3. Validate output destination overwrite safeguards
+        module_name = getattr(config.android, "module_name", "app")
+        target_filename = (
+            f"{config.project_name}-{config.android.build_variant}-protected.apk"
         )
+        validate_output_destination(
+            output_dir=config.output.dir,
+            artifact_name=target_filename,
+            allow_overwrite=config.output.overwrite_existing,
+        )
+
+        logs: list[str] = [
+            "Starting Android Gradle protection pipeline in isolated staging sandbox."
+        ]
+
+        # 4. Isolated Staging Sandbox
+        sandbox = SandboxManager(
+            source_dir=config.input.project_dir,
+            exclude_patterns=config.input.exclude_patterns,
+            immutability_exclude_patterns=config.input.immutability_exclude_patterns,
+        )
+
+        with sandbox:
+            staging_dir = sandbox.staging_dir
+            logs.append(f"Project staged in ephemeral sandbox: '{staging_dir}'")
+
+            # 5. Inject R8 protection rules into staging workspace
+            staged_rules_file = self.stage_rules(
+                staging_dir=staging_dir,
+                custom_rules_file=config.android.r8_rules_file,
+            )
+            logs.append(
+                f"Injected AppShield R8 protection rules into '{staged_rules_file.name}'"
+            )
+
+            # 6. Execute Gradle build inside staging sandbox
+            if runner is not None:
+                active_runner = runner
+                if hasattr(active_runner, "project_dir"):
+                    active_runner.project_dir = staging_dir
+            else:
+                active_runner = GradleRunner(
+                    project_dir=staging_dir,
+                    timeout_seconds=300.0,
+                    offline=True,
+                    no_daemon=True,
+                )
+
+            build_res = active_runner.run_task(config.android.gradle_task)
+            logs.append(
+                f"Gradle task '{config.android.gradle_task}' succeeded in {build_res.duration_seconds:.2f}s."
+            )
+
+            # 7. Locate built APK artifact
+            raw_apk = locate_build_apk(
+                staging_dir=staging_dir,
+                module_name=module_name,
+                build_variant=config.android.build_variant,
+            )
+            logs.append(f"Located release APK: '{raw_apk.name}'")
+
+            # 8. Locate R8 mapping file
+            mapping_file = locate_r8_mapping(
+                staging_dir=staging_dir,
+                module_name=module_name,
+                build_variant=config.android.build_variant,
+            )
+            if mapping_file:
+                logs.append(f"Located R8 mapping file: '{mapping_file.name}'")
+
+            # 9. Align and sign within staging sandbox
+            signing_res = align_and_sign_apk(
+                unsigned_apk=raw_apk,
+                output_dir=staging_dir / "appshield_signing_temp",
+                signing_config=config.android.signing,
+                allow_production_signing=allow_production_signing,
+                overwrite=True,
+            )
+            logs.append(
+                f"Alignment and signing completed: signature_type='{signing_res.signature_type}'"
+            )
+
+            # 10. Safely export protected artifact to destination
+            rel_signed_apk = signing_res.final_apk_path.relative_to(staging_dir)
+            exported_path = sandbox.export_artifact(
+                staged_relative_path=rel_signed_apk,
+                output_dir=config.output.dir,
+                target_filename=target_filename,
+                allow_overwrite=config.output.overwrite_existing,
+            )
+            logs.append(f"Exported protected artifact to '{exported_path}'")
+
+            # 11. Verify original source tree immutability
+            if config.input.verify_source_immutability:
+                sandbox.verify_source_integrity()
+                logs.append(
+                    "Verified original source tree immutability (SHA-256 matches pre-build state)."
+                )
+
+            return ProtectionResult(
+                success=True,
+                protected_artifact_path=exported_path,
+                logs=logs,
+                metadata={
+                    "signature_type": signing_res.signature_type,
+                    "is_aligned": str(signing_res.is_aligned),
+                    "r8_mapping_found": str(mapping_file is not None),
+                    "r8_mapping_path": str(mapping_file) if mapping_file else "",
+                },
+            )

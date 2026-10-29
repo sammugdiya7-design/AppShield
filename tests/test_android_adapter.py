@@ -537,18 +537,137 @@ def test_source_preservation_with_sandbox_manager(tmp_path: Path):
     assert not sandbox.staging_dir.exists()
 
 
-def test_stage_and_protect_raises_not_implemented(tmp_path: Path):
-    """Verify stage_and_protect explicitly reports not implemented in Plan 04-01."""
+import zipfile
+from unittest.mock import MagicMock, patch
+
+from appshield.config import OverwriteError
+from appshield.gradle import GradleBuildResult
+from appshield.signing import SigningResult
+
+
+def create_dummy_apk(
+    path: Path, include_manifest: bool = True, include_dex: bool = True
+) -> Path:
+    """Helper to create a minimal synthetic valid zip archive representing an APK."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as zf:
+        if include_manifest:
+            zf.writestr("AndroidManifest.xml", b"<dummy-manifest/>")
+        if include_dex:
+            zf.writestr("classes.dex", b"<dummy-dex-bytecode/>")
+        zf.writestr("resources.arsc", b"<dummy-resources/>")
+    return path
+
+
+def test_stage_and_protect_stops_on_missing_prerequisites(tmp_path: Path):
+    """Verify stage_and_protect safely halts when required toolchain prerequisites are missing."""
+    dist_dir = tmp_path / "dist"
     config = AppShieldConfig(
         version="1.0",
         project_name="sample_android_gradle_project",
         platform="android",
         input=InputConfig(project_dir=FIXTURE_DIR),
-        output=OutputConfig(dir=tmp_path / "dist"),
+        output=OutputConfig(dir=dist_dir),
     )
     adapter = AndroidPipelineAdapter()
-    with pytest.raises(NotImplementedError, match="not implemented in Plan 04-01"):
-        adapter.stage_and_protect(config)
+
+    # The current host environment lacks JDK 17 / Android SDK
+    result = adapter.stage_and_protect(config)
+    assert result.success is False
+    assert result.protected_artifact_path is None
+    assert (
+        "missing required toolchain prerequisites"
+        in (result.error_message or "").lower()
+    )
+    # Confirm no fake or simulated artifact was created
+    assert not dist_dir.exists() or len(list(dist_dir.iterdir())) == 0
+
+
+def test_stage_and_protect_mocked_end_to_end_success(tmp_path: Path):
+    """Verify stage_and_protect completes full staging, build, discovery, export and source verification."""
+    dist_dir = tmp_path / "dist"
+    config = AppShieldConfig(
+        version="1.0",
+        project_name="sample_android_gradle_project",
+        platform="android",
+        input=InputConfig(project_dir=FIXTURE_DIR, verify_source_immutability=True),
+        output=OutputConfig(dir=dist_dir),
+    )
+    adapter = AndroidPipelineAdapter()
+
+    mock_runner = MagicMock()
+
+    def fake_run(tasks: str, **kwargs: object) -> GradleBuildResult:
+        # Simulate Gradle build producing release APK inside staging sandbox
+        apk_path = (
+            mock_runner.project_dir
+            / "app"
+            / "build"
+            / "outputs"
+            / "apk"
+            / "release"
+            / "app-release-unsigned.apk"
+        )
+        create_dummy_apk(apk_path)
+        return GradleBuildResult(
+            success=True,
+            exit_code=0,
+            stdout="BUILD SUCCESSFUL",
+            stderr="",
+            duration_seconds=1.5,
+            command=["gradlew", tasks],
+        )
+
+    mock_runner.run_task.side_effect = fake_run
+
+    with patch("appshield.adapters.android.align_and_sign_apk") as mock_align_sign:
+
+        def fake_signing(
+            unsigned_apk: Path, output_dir: Path, **kwargs: object
+        ) -> SigningResult:
+            final_apk = output_dir / "app-release-unsigned-aligned.apk"
+            create_dummy_apk(final_apk)
+            return SigningResult(
+                success=True,
+                signature_type="unsigned",
+                aligned_apk_path=final_apk,
+                final_apk_path=final_apk,
+                is_aligned=True,
+            )
+
+        mock_align_sign.side_effect = fake_signing
+
+        result = adapter.stage_and_protect(config, runner=mock_runner)
+        assert result.success is True
+        assert result.protected_artifact_path is not None
+        assert result.protected_artifact_path.is_file()
+        assert (
+            result.protected_artifact_path.name
+            == "sample_android_gradle_project-release-protected.apk"
+        )
+        assert result.metadata["signature_type"] == "unsigned"
+        assert result.metadata["is_aligned"] == "True"
+
+
+def test_stage_and_protect_overwrite_guard(tmp_path: Path):
+    """Verify stage_and_protect enforces destination overwrite protection."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    target_apk = dist_dir / "sample_android_gradle_project-release-protected.apk"
+    target_apk.write_bytes(b"existing_content")
+
+    config = AppShieldConfig(
+        version="1.0",
+        project_name="sample_android_gradle_project",
+        platform="android",
+        input=InputConfig(project_dir=FIXTURE_DIR),
+        output=OutputConfig(dir=dist_dir, overwrite_existing=False),
+    )
+    adapter = AndroidPipelineAdapter()
+    mock_runner = MagicMock()
+
+    with pytest.raises(OverwriteError):
+        adapter.stage_and_protect(config, runner=mock_runner)
 
 
 def test_check_prerequisites_returns_prerequisite_checks():

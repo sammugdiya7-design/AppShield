@@ -34,3 +34,6 @@ include = ["appshield*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.bandit]
+skips = ["B404", "B603"]

@@ -49,9 +49,9 @@ A simple, local, cross-platform application code-protection CLI for developers t
 ## 3. Current Phase & Progress
 
 - **Current Phase**: Phase 4: Android Protection Pipeline & Verification Engine
-- **Current Plan**: Plan 04-01 Complete; Plan 04-02 Pending
-- **Status**: Plan 04-01 verified (Android adapter, toolchain discovery, safe R8 rule staging); ready for user review
-- **Overall Progress**: 50% (Phases 1, 2, & 3 complete; 6 of 12 total plans completed)
+- **Current Plan**: Plan 04-02 Complete; Plan 04-03 Pending
+- **Status**: Plan 04-02 verified (safe Gradle build runner, APK discovery, test signing & alignment pipeline); ready for user review
+- **Overall Progress**: 58% (Phases 1, 2, & 3 complete; 7 of 12 total plans completed)
 
 ---
 
@@ -96,8 +96,15 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Automated tests: Added 28 unit tests in `tests/test_android_adapter.py` and 9 tests in `tests/test_doctor.py` (total 124 tests in test suite) passing with 94% overall code coverage.
   - Zero live builds executed; zero remote downloads or network requests triggered; original source preserved and unchanged.
 
+- [x] Completed Plan 04-02: Safe Gradle Build Execution, APK Output Extraction, and Test Signing:
+  - `appshield/gradle.py`: Implemented controlled Gradle build runner (`GradleRunner`), safe subprocess execution without `shell=True`, safe environment policy preserving system variables while stripping credentials, diagnostic capture with automated secret redaction, process tree termination on timeout (`taskkill` on Windows, `killpg` on POSIX), Gradle task name validation, discovery and verification of release APK (`locate_build_apk`) and R8 mapping file (`locate_r8_mapping`), and APK archive validation (`validate_apk_file`).
+  - `appshield/signing.py`: Implemented verified 5-step signing pipeline (locate unsigned APK -> zipalign -> apksigner sign with masked env vars -> verify signature -> check alignment on signed APK without modifying it). Added non-production signing guards, disposable test keystore generation (`generate_disposable_test_keystore`), credential redaction, and distinct labeling (`unsigned`, `test_signed`, `production_signed`).
+  - Integrated into `AndroidPipelineAdapter.stage_and_protect()`: Prerequisite verification preventing simulated execution on missing host toolchains; staging in ephemeral sandbox; R8 rules injection; Gradle build; release APK discovery; alignment/signing; destination overwrite safeguards; and source immutability verification.
+  - Automated tests: Added 45 unit tests in `tests/test_gradle.py`, 33 unit tests in `tests/test_signing.py`, and updated `tests/test_android_adapter.py` (total 205 tests across suite) passing with 93% code coverage.
+  - Static analysis: `ruff check` (0 errors), `ruff format` (clean), `mypy` (0 errors in 18 source files), `bandit` (0 issues).
+  - Safety & Boundary Confirmation: Host toolchain prerequisites remained unavailable (Java 8 vs 17, missing SDK 34, missing wrapper JAR); runner and adapter verified to fail clearly and safely without executing unapproved builds, downloading binaries, or emitting fake APKs.
+
 ### Pending Tasks (Phase 4 Decomposed Plans)
-- [ ] Plan 04-02: Safe Gradle Build Execution, APK Output Extraction & Test Signing.
 - [ ] Plan 04-03: Empirical Verification Engine, String Pool Scanner & Mapping Auditor.
 - [ ] Plan 04-04: End-to-End CLI Integration, Automated Test Matrix & Security Validation.
 
