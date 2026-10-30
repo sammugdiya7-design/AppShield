@@ -49,9 +49,9 @@ A simple, local, cross-platform application code-protection CLI for developers t
 ## 3. Current Phase & Progress
 
 - **Current Phase**: Phase 4: Android Protection Pipeline & Verification Engine
-- **Current Plan**: Plan 04-02 Complete; Plan 04-03 Pending
-- **Status**: Plan 04-02 verified (safe Gradle build runner, APK discovery, test signing & alignment pipeline); ready for user review
-- **Overall Progress**: 58% (Phases 1, 2, & 3 complete; 7 of 12 total plans completed)
+- **Current Plan**: Plan 04-03 Complete; Plan 04-04 Pending
+- **Status**: Plan 04-03 verified (empirical verification engine, DEX inspector, string pool scanner, R8 mapping auditor, dual-evidence symbol verification, 7 objective checks, 255 tests, 94% coverage); ready for user review
+- **Overall Progress**: 67% (Phases 1, 2, & 3 complete; 8 of 12 total plans completed)
 
 ---
 
@@ -104,8 +104,23 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Static analysis: `ruff check` (0 errors), `ruff format` (clean), `mypy` (0 errors in 18 source files), `bandit` (0 issues).
   - Safety & Boundary Confirmation: Host toolchain prerequisites remained unavailable (Java 8 vs 17, missing SDK 34, missing wrapper JAR); runner and adapter verified to fail clearly and safely without executing unapproved builds, downloading binaries, or emitting fake APKs.
 
+- [x] Completed Plan 04-03: Empirical Verification Engine, String Pool Scanner & Mapping Auditor:
+  - `appshield/dex.py`: Implemented robust, defensive DEX bytecode inspector for DEX format (versions 035-040). Safely parses DEX headers, endianness, string identifier tables, type identifiers, and class definition tables with strict bounds checking. Implemented `inspect_apk_dex()` for multidex APKs (`classes.dex`, `classes2.dex`, etc.) and `create_synthetic_dex()` for generating binary-compliant synthetic DEX test fixtures without requiring an Android SDK. Treated all DEX structures as untrusted data without executing APK bytecode.
+  - `appshield/mapping.py`: Implemented R8 ProGuard `mapping.txt` parser. Extracts class, method, and field obfuscation remappings, computes aggregate renaming ratios, and extracts R8 compiler metadata (`compiler`, `compiler_version`). Keeps raw mappings out of reports to avoid leaking obfuscation internals.
+  - `appshield/verify.py`: Implemented `VerificationEngine` with 7 objective, evidence-based verification checks:
+    - `CHK-BLD-01`: Build execution status (`VERIFIED` on real build, `INFORMATIONAL` on synthetic/test artifacts, `FAILED` on failure).
+    - `CHK-APK-01`: APK structure and DEX validity (`VERIFIED` or `FAILED`).
+    - `CHK-SYM-01`: Dual-evidence symbol verification (`HEURISTIC`). Verifies that original developer symbols are absent from DEX class descriptors, mapped obfuscated descriptors exist in DEX bytecode, and entry point classes are preserved. Correctly identifies stripped dead code as missing rather than misclassifying it as obfuscated.
+    - `CHK-SIG-01`: Cryptographic signature verification via `apksigner verify` (`VERIFIED`, `FAILED`, or `UNSUPPORTED`).
+    - `CHK-ALN-01`: 4-byte ZIP alignment verification via `zipalign -c` (`VERIFIED`, `FAILED`, or `UNSUPPORTED`).
+    - `CHK-STR-01`: Heuristic string pool scanner (`HEURISTIC`). Scans DEX string tables for sensitive patterns (API keys, tokens, credentials, fixture tokens) with mandatory redaction (`[REDACTED_SECRET_PATTERN]`, `[REDACTED_FIXTURE_TOKEN]`) in output reports.
+    - `CHK-CMP-01`: Bytecode structural compatibility evidence (`INFORMATIONAL`).
+  - Strict reporting guarantees: Defined `VerificationReport` with export to JSON (`audit_report.json`), formatted terminal output, and GitHub-flavored Markdown. Explicitly banned composite numerical "resistance scores"; every check reports precise evidence levels, findings, and disclaimers.
+  - Environment variable isolation (Requirement 7): Verified signing passwords (`APPSHIELD_KS_PASS`, etc.) never leak into subprocess environments.
+  - Automated tests: Added 25 unit tests in `tests/test_dex.py` and 25 unit tests in `tests/test_verify_engine.py` (total 255 tests across suite) passing with 94% code coverage (`dex.py`: 96%, `mapping.py`: 98%, `verify.py`: 91%).
+  - Static analysis: `ruff check` (0 errors), `ruff format` (clean), `mypy` (0 errors in 23 source files), `bandit` (0 issues).
+
 ### Pending Tasks (Phase 4 Decomposed Plans)
-- [ ] Plan 04-03: Empirical Verification Engine, String Pool Scanner & Mapping Auditor.
 - [ ] Plan 04-04: End-to-End CLI Integration, Automated Test Matrix & Security Validation.
 
 ---
