@@ -126,16 +126,34 @@ class VerificationEngine:
         )
 
     def check_bld_01(
-        self, build_result: GradleBuildResult | None, is_real_build: bool
+        self,
+        build_result: GradleBuildResult | None,
+        is_real_build: bool,
+        evidence_errors: list[str] | None = None,
     ) -> ObjectiveCheckResult:
         """
         CHK-BLD-01: Actual build completion.
-        Verifies that an actual build toolchain executed and completed successfully.
+        Verifies that an actual build toolchain executed and completed successfully,
+        and that build evidence (APK and mapping artifacts) is consistent.
         """
         proves = "Proves that the build toolchain executed and exited successfully with return code 0."
         does_not_prove = (
             "Does not prove the resulting artifact is secure, obfuscated, or bug-free."
         )
+
+        if evidence_errors:
+            return ObjectiveCheckResult(
+                check_id="CHK-BLD-01",
+                name="Actual Build Completion",
+                category="build",
+                outcome="FAILED",
+                status="FAIL",
+                what_it_proves=proves,
+                what_it_does_not_prove=does_not_prove,
+                observed_metric=f"Inconsistent build evidence: {'; '.join(evidence_errors)}",
+                details={"evidence_errors": evidence_errors},
+                recommendation="Ensure the mapping file and APK belong to the exact same build session.",
+            )
 
         if build_result is None:
             return ObjectiveCheckResult(
@@ -288,12 +306,15 @@ class VerificationEngine:
         Ensures expected classes were renamed and their mapped descriptors exist in DEX bytecode.
         """
         proves = (
-            "Evidence that identifiable class symbol names were altered to minified names in compiled DEX bytecode "
-            "and that mapped obfuscated classes exist in the binary while entry points are preserved."
+            "Direct evidence that identified class descriptors were renamed: confirms that target class symbols "
+            "were renamed in R8 mapping.txt and their mapped obfuscated descriptors exist in compiled DEX class_defs "
+            "while original descriptors are absent, and entry points remain retained."
         )
         does_not_prove = (
-            "Does not prove that reverse engineering is impossible, that logic cannot be deduced from control-flow, "
-            "or that reflection-safe entry points are protected."
+            "Does NOT prove that reverse engineering is impossible or that the entire application cannot be analyzed. "
+            "The broader inference that obfuscation increases reverse-engineering work factors is HEURISTIC. "
+            "Verifying that specific class descriptors were renamed provides direct evidence of symbol renaming "
+            "for those classes only, not proof of complete application protection or control-flow resistance."
         )
 
         if mapping is None:
@@ -400,7 +421,7 @@ class VerificationEngine:
                 )
 
         status: StatusType = "PASS"
-        outcome: OutcomeType = "HEURISTIC"
+        outcome: OutcomeType = "VERIFIED"
 
         if discrepancies:
             status = "FAIL"
@@ -411,9 +432,10 @@ class VerificationEngine:
             )
         else:
             observed = (
-                f"Dual-evidence verified: {ratio_pct:.1f}% classes renamed "
+                f"Direct descriptor renaming verified: {ratio_pct:.1f}% classes renamed "
                 f"({mapping.renamed_classes_count}/{mapping.total_classes} in mapping); "
-                f"{verified_obfuscated_count} fixture symbol(s) confirmed renamed and present in DEX"
+                f"{verified_obfuscated_count} fixture symbol(s) confirmed renamed and present in DEX "
+                "(heuristic inference: symbol renaming raises reverse-engineering work factor)"
             )
 
         return ObjectiveCheckResult(
@@ -426,6 +448,8 @@ class VerificationEngine:
             what_it_does_not_prove=does_not_prove,
             observed_metric=observed,
             details={
+                "evidence_classification": "VERIFIED (direct descriptor and mapping match)",
+                "security_inference": "HEURISTIC (renaming symbols increases reverse-engineering work factor but does not prevent decompilation or logic analysis)",
                 "total_mapping_classes": mapping.total_classes,
                 "renamed_mapping_classes": mapping.renamed_classes_count,
                 "renaming_ratio": round(mapping.class_renaming_ratio, 4),
@@ -687,26 +711,33 @@ class VerificationEngine:
 
     def check_cmp_01(self, dex_summary: ApkDexSummary | None) -> ObjectiveCheckResult:
         """
-        CHK-CMP-01: Structural compatibility evidence.
-        Confirms that bytecode structures comply with Dalvik executable specifications.
+        CHK-CMP-01: Informational structural inspection.
+        Confirms that bytecode structures comply with Dalvik/ART executable specifications.
         """
         proves = (
-            "Confirms that bytecode structures comply with Dalvik/ART executable specifications "
-            "without header or section boundary corruption."
+            "Provides informational confirmation that DEX bytecode structures comply with static Dalvik/ART header "
+            "and table boundary specifications without binary corruption."
         )
-        does_not_prove = "Does not measure obfuscation resilience or reverse-engineering work factor."
+        does_not_prove = (
+            "Does NOT prove that the application runs, launches, or executes correctly at runtime. "
+            "Structural static inspection cannot guarantee runtime functional correctness; runtime verification "
+            "requires execution testing on an actual Android device or emulator."
+        )
 
         if dex_summary is None or dex_summary.dex_files_count == 0:
             return ObjectiveCheckResult(
                 check_id="CHK-CMP-01",
-                name="Structural Compatibility Evidence",
+                name="Informational Structural Inspection",
                 category="compatibility",
                 outcome="INFORMATIONAL",
                 status="INFO",
                 what_it_proves=proves,
                 what_it_does_not_prove=does_not_prove,
-                observed_metric="DEX structures unavailable for compatibility inspection",
-                details={},
+                observed_metric="DEX structures unavailable for structural inspection",
+                details={
+                    "static_inspection_only": True,
+                    "runtime_execution_tested": False,
+                },
             )
 
         dex_versions = [info.header.version for info in dex_summary.dex_files]
@@ -714,13 +745,13 @@ class VerificationEngine:
         all_little_endian = all(endian_flags)
 
         observed = (
-            f"All {dex_summary.dex_files_count} DEX file(s) parsed cleanly "
-            f"(DEX version: {', '.join(set(dex_versions))}, standard little-endian format)"
+            f"Informational static inspection: All {dex_summary.dex_files_count} DEX file(s) conform to Dalvik specifications "
+            f"(DEX version: {', '.join(set(dex_versions))}, standard little-endian; runtime execution not tested)"
         )
 
         return ObjectiveCheckResult(
             check_id="CHK-CMP-01",
-            name="Structural Compatibility Evidence",
+            name="Informational Structural Inspection",
             category="compatibility",
             outcome="INFORMATIONAL",
             status="INFO",
@@ -728,6 +759,8 @@ class VerificationEngine:
             what_it_does_not_prove=does_not_prove,
             observed_metric=observed,
             details={
+                "static_inspection_only": True,
+                "runtime_execution_tested": False,
                 "dex_files_count": dex_summary.dex_files_count,
                 "dex_versions": list(set(dex_versions)),
                 "all_little_endian": all_little_endian,
@@ -744,9 +777,11 @@ class VerificationEngine:
         is_real_build: bool = False,
         expected_fixture_classes: list[str] | None = None,
         expected_entry_points: list[str] | None = None,
+        build_id: str | None = None,
     ) -> VerificationReport:
         """
         Execute all 7 empirical verification checks and generate a structured audit report.
+        Ensures the mapping file and build artifacts belong to the exact build session.
         """
         resolved_apk = apk_path.resolve()
 
@@ -761,6 +796,35 @@ class VerificationEngine:
         else:
             apk_sha256 = ""
             apk_size = 0
+
+        # Compute mapping SHA-256 (keeps raw mapping content private)
+        mapping_sha256: str | None = None
+        if mapping_file is not None and mapping_file.is_file():
+            hasher_m = hashlib.sha256()
+            with open(mapping_file, "rb") as mf:
+                while chunk := mf.read(65536):
+                    hasher_m.update(chunk)
+            mapping_sha256 = hasher_m.hexdigest()
+
+        # Validate build evidence consistency between build_result and artifacts
+        evidence_errors: list[str] = []
+        if build_result is not None:
+            if (
+                build_result.apk_path is not None
+                and resolved_apk != build_result.apk_path.resolve()
+            ):
+                evidence_errors.append(
+                    f"APK path '{resolved_apk}' does not match build result artifact '{build_result.apk_path.resolve()}'"
+                )
+            if build_result.mapping_file is not None:
+                if mapping_file is None:
+                    evidence_errors.append(
+                        f"Build result produced mapping '{build_result.mapping_file.resolve()}', but none was provided for verification"
+                    )
+                elif mapping_file.resolve() != build_result.mapping_file.resolve():
+                    evidence_errors.append(
+                        f"Provided mapping file '{mapping_file.resolve()}' does not match build result mapping '{build_result.mapping_file.resolve()}'"
+                    )
 
         # Inspect DEX structures
         dex_summary: ApkDexSummary | None = None
@@ -788,7 +852,9 @@ class VerificationEngine:
 
         # Execute checks
         checks: list[ObjectiveCheckResult] = [
-            self.check_bld_01(build_result, is_real_build),
+            self.check_bld_01(
+                build_result, is_real_build, evidence_errors=evidence_errors
+            ),
             self.check_apk_01(resolved_apk, dex_summary),
             self.check_sym_01(
                 dex_summary,
@@ -838,18 +904,27 @@ class VerificationEngine:
 
         now_iso = datetime.now(timezone.utc).isoformat()
 
+        effective_build_id = build_id
+        if effective_build_id is None and build_result is not None:
+            effective_build_id = build_result.metadata.get("build_id")
+
+        artifact_dict: dict[str, Any] = {
+            "name": resolved_apk.name if resolved_apk.is_file() else str(apk_path),
+            "path": str(resolved_apk),
+            "sha256": apk_sha256,
+            "size_bytes": apk_size,
+            "is_real_build": is_real_build,
+            "signature_type": sig_type,
+            "mapping_sha256": mapping_sha256,
+        }
+        if effective_build_id:
+            artifact_dict["build_id"] = effective_build_id
+
         return VerificationReport(
             audit_version="1.0",
             project_name=self.project_name,
             generated_at=now_iso,
-            artifact={
-                "name": resolved_apk.name,
-                "path": str(resolved_apk),
-                "sha256": apk_sha256,
-                "size_bytes": apk_size,
-                "is_real_build": is_real_build,
-                "signature_type": sig_type,
-            },
+            artifact=artifact_dict,
             summary=summary_counts,
             objective_checks=checks,
             is_verified_protected=is_verified_protected,

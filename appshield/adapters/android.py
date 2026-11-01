@@ -48,6 +48,25 @@ FORBIDDEN_TEST_KEEP_PATTERNS = [
 ]
 
 
+def contains_unobfuscated_keep_directive(text: str, pattern: str) -> bool:
+    """
+    Check whether rules text contains a -keep directive for pattern that preserves original names.
+    Directives specifying 'allowobfuscation' are permitted because they retain symbols for reachability
+    while explicitly instructing R8 to obfuscate/rename them.
+    """
+    for line in text.splitlines():
+        line_clean = line.strip()
+        if not line_clean or line_clean.startswith("#"):
+            continue
+        if (
+            re.search(r"-keep\b", line_clean, re.IGNORECASE)
+            and pattern in line_clean
+            and "allowobfuscation" not in line_clean.lower()
+        ):
+            return True
+    return False
+
+
 def extract_block(text: str, block_name: str) -> str | None:
     """
     Extract the content of a named curly-brace block: `block_name { ... }`.
@@ -482,11 +501,7 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 )
             file_rules = custom_resolved.read_text(encoding="utf-8", errors="replace")
             for pattern in FORBIDDEN_TEST_KEEP_PATTERNS:
-                if re.search(
-                    rf"-keep\b.*{re.escape(pattern)}",
-                    file_rules,
-                    re.IGNORECASE,
-                ):
+                if contains_unobfuscated_keep_directive(file_rules, pattern):
                     raise RuleStagingError(
                         f"Custom rules file contains forbidden keep directive for test symbol '{pattern}' intended for obfuscation verification."
                     )
@@ -496,11 +511,7 @@ class AndroidPipelineAdapter(PlatformAdapter):
 
         if custom_rules is not None:
             for pattern in FORBIDDEN_TEST_KEEP_PATTERNS:
-                if re.search(
-                    rf"-keep\b.*{re.escape(pattern)}",
-                    custom_rules,
-                    re.IGNORECASE,
-                ):
+                if contains_unobfuscated_keep_directive(custom_rules, pattern):
                     raise RuleStagingError(
                         f"Custom rules string contains forbidden keep directive for test symbol '{pattern}' intended for obfuscation verification."
                     )

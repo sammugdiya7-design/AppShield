@@ -43,6 +43,10 @@ A simple, local, cross-platform application code-protection CLI for developers t
 | **Simulation Barrier** | Simulation strictly isolated in test suite; production CLI stops if toolchain missing | Never emit fake or simulated APKs to `dist/protected/`; protection claims require real builds. |
 | **Mapping Protection** | R8 `mapping.txt` kept out of public output, logs, and git; secure retention optional | Prevents deobfuscation leakage while allowing crash-trace retention at separate path. |
 | **Signing Sequence** | Build -> zipalign unsigned -> apksigner -> apksigner verify -> zipalign -c | Never modify APK after signing. Test-signed only for fixture; production signing opt-in. |
+| **DEX Format Scope** | Standard DEX 035–040 supported; DEX 041 explicitly unsupported | MVP targets AGP 8.2 / Android API 34; Container DEX 041 uses an altered container header layout. |
+| **Symbol Verification Separation** | Direct descriptor renaming match is `VERIFIED`; broader resilience claim is `HEURISTIC` | Direct mapping & DEX match proves identified symbols were renamed; does not prove application is unbreakable. |
+| **Repackaging Support** | Derived dynamically from mapping data (supports default and custom package repackaging) | Avoids hardcoded package assumptions; verifies mapped descriptors in actual compiled APK. |
+| **Structural Compatibility Claim** | Strictly labeled "Informational Structural Inspection" | Confirms Dalvik header/table structure; does not prove runtime execution without device testing. |
 
 ---
 
@@ -146,10 +150,15 @@ A simple, local, cross-platform application code-protection CLI for developers t
 ### Verification Evidence & Precision Invariants
 - **No Composite Score**: Never compute or report an opaque "resistance score" (e.g. 85/100).
 - **Precise Evidentiary Claims**:
-  - Identifier renaming ratio is *evidence of obfuscation*, not proof that reverse engineering is impossible.
-  - String scanning *detects suspicious patterns* but cannot guarantee that no secrets exist.
-  - Signature verification establishes *validity under signature rules*; it does not prove the application is secure.
-  - Structural decompilation check is *informational* (confirms bytecode validity), not a measure of obfuscation strength.
+  - `CHK-SYM-01`: Direct evidence that identified class descriptors were renamed based on matching `mapping.txt` and actual DEX descriptors is `VERIFIED`. The broader inference that obfuscation raises reverse-engineering work factors is `HEURISTIC`. Reports must never imply that verifying several renamed symbols proves the whole app is impossible to reverse-engineer.
+  - `CHK-STR-01`: String scanning *detects suspicious patterns* but cannot guarantee that no secrets exist. Classified as `HEURISTIC`. Matched tokens are strictly redacted.
+  - `CHK-SIG-01`: Cryptographic signature verification establishes *validity under signature rules*; it does not prove the application code is secure. Classified as `VERIFIED`.
+  - `CHK-CMP-01`: Labeled as "Informational Structural Inspection" — confirms static Dalvik/ART header and table bounds; explicitly does *not* prove runtime execution correctness without device/emulator testing. Classified as `INFORMATIONAL`.
+  - `CHK-BLD-01`: Real toolchain build verification (`VERIFIED` on real builds, `INFORMATIONAL` on synthetic/test harnesses, `FAILED` on exit errors or inconsistent evidence).
+  - `CHK-APK-01`: Validates package ZIP structure and DEX bytecode streams (`VERIFIED` / `FAILED`).
+- **Dead-Code Removal vs. Obfuscation**: Never count dead-code elimination as successful obfuscation. If a class is missing from DEX class_defs (stripped by R8), `CHK-SYM-01` reports a discrepancy and fails. Identifiable fixture classes are retained via `-keep,allowobfuscation` to ensure reachability from entry points (`MainActivity`) while allowing R8 to obfuscate.
+- **Mapping & Artifact Association**: Verification requires the mapping file to belong to the exact build artifact inspected. Hash tracking (`mapping_sha256`) and build identifier association ensure evidence consistency while keeping raw mappings strictly private.
+- **DEX Format Scope**: Dalvik Executable versions 035–040 are supported (AGP 8.2 / Android API 34). DEX version 041 (Android 15+ Container DEX) is explicitly unsupported in this release and rejected with a clear diagnostic.
 - Every check explicitly reports what it proves, what it does not prove, and its status: `VERIFIED`, `HEURISTIC`, `INFORMATIONAL`, `FAILED`, or `UNSUPPORTED`.
 
 ### Safety, Credentials & Workspace Invariants

@@ -128,10 +128,110 @@ class TestDualEvidenceSymbolVerification:
         )
 
         assert result.status == "PASS"
-        assert result.outcome == "HEURISTIC"
-        assert "Dual-evidence verified" in result.observed_metric
+        assert result.outcome == "VERIFIED"
+        assert "Direct descriptor renaming verified" in result.observed_metric
         assert result.details["fixture_classes_verified"] == 2
         assert result.details["discrepancies_count"] == 0
+
+    def test_dual_evidence_repackage_default_package(self, tmp_path: Path) -> None:
+        """Verify repackaging into the default package (e.g. -repackageclasses '')."""
+        repackage_default_mapping = """# compiler: R8
+# compiler_version: 8.2.2
+com.example.sample.IdentifiableSecretService -> a:
+    java.lang.String processUserTokenAndCalculateHash(java.lang.String) -> a
+com.example.sample.PaymentSecurityValidator -> b:
+    boolean validateTransactionToken(java.lang.String,double) -> a
+com.example.sample.MainActivity -> com.example.sample.MainActivity:
+    void onCreate(android.os.Bundle) -> onCreate
+"""
+        apk = create_test_apk(
+            tmp_path / "test_repack.apk",
+            classes=["a", "b", "com.example.sample.MainActivity"],
+        )
+        dex_summary = inspect_apk_dex(apk)
+        mapping_summary = parse_r8_mapping(repackage_default_mapping)
+
+        engine = VerificationEngine()
+        result = engine.check_sym_01(
+            dex_summary=dex_summary,
+            mapping=mapping_summary,
+            expected_fixture_classes=[
+                "IdentifiableSecretService",
+                "PaymentSecurityValidator",
+            ],
+            expected_entry_points=["MainActivity"],
+        )
+
+        assert result.status == "PASS"
+        assert result.outcome == "VERIFIED"
+        assert result.details["fixture_classes_verified"] == 2
+
+    def test_dual_evidence_repackage_custom_package(self, tmp_path: Path) -> None:
+        """Verify repackaging into a custom package (e.g. -repackageclasses 'obf.pkg')."""
+        repackage_custom_mapping = """# compiler: R8
+# compiler_version: 8.2.2
+com.example.sample.IdentifiableSecretService -> obf.pkg.Alpha:
+    java.lang.String processUserTokenAndCalculateHash(java.lang.String) -> a
+com.example.sample.PaymentSecurityValidator -> obf.pkg.Beta:
+    boolean validateTransactionToken(java.lang.String,double) -> a
+com.example.sample.MainActivity -> com.example.sample.MainActivity:
+    void onCreate(android.os.Bundle) -> onCreate
+"""
+        apk = create_test_apk(
+            tmp_path / "test_repack_custom.apk",
+            classes=[
+                "obf.pkg.Alpha",
+                "obf.pkg.Beta",
+                "com.example.sample.MainActivity",
+            ],
+        )
+        dex_summary = inspect_apk_dex(apk)
+        mapping_summary = parse_r8_mapping(repackage_custom_mapping)
+
+        engine = VerificationEngine()
+        result = engine.check_sym_01(
+            dex_summary=dex_summary,
+            mapping=mapping_summary,
+            expected_fixture_classes=[
+                "IdentifiableSecretService",
+                "PaymentSecurityValidator",
+            ],
+            expected_entry_points=["MainActivity"],
+        )
+
+        assert result.status == "PASS"
+        assert result.outcome == "VERIFIED"
+        assert result.details["fixture_classes_verified"] == 2
+
+    def test_dual_evidence_repackage_mismatch_fails(self, tmp_path: Path) -> None:
+        """Verify failure when DEX does not contain the mapped repackaged descriptors."""
+        repackage_custom_mapping = """# compiler: R8
+# compiler_version: 8.2.2
+com.example.sample.IdentifiableSecretService -> obf.pkg.Alpha:
+    java.lang.String processUserTokenAndCalculateHash(java.lang.String) -> a
+com.example.sample.MainActivity -> com.example.sample.MainActivity:
+    void onCreate(android.os.Bundle) -> onCreate
+"""
+        # APK has old package 'a.a', not 'obf.pkg.Alpha'
+        apk = create_test_apk(
+            tmp_path / "test_repack_mismatch.apk",
+            classes=["a.a", "com.example.sample.MainActivity"],
+        )
+        dex_summary = inspect_apk_dex(apk)
+        mapping_summary = parse_r8_mapping(repackage_custom_mapping)
+
+        engine = VerificationEngine()
+        result = engine.check_sym_01(
+            dex_summary=dex_summary,
+            mapping=mapping_summary,
+            expected_fixture_classes=["IdentifiableSecretService"],
+            expected_entry_points=["MainActivity"],
+        )
+
+        assert result.status == "FAIL"
+        assert result.outcome == "FAILED"
+        assert result.details["fixture_classes_missing"] == 1
+        assert result.details["fixture_classes_verified"] == 0
 
     def test_dual_evidence_fails_when_original_symbol_still_in_dex(
         self, tmp_path: Path
@@ -440,6 +540,26 @@ class TestStringPoolScan:
         assert "[REDACTED_FIXTURE_TOKEN]" in details_str
 
 
+class TestStructuralInspection:
+    def test_cmp_01_informational_labels_and_disclaimers(self, tmp_path: Path) -> None:
+        apk = create_test_apk(tmp_path / "app.apk", classes=["a.a"])
+        dex_summary = inspect_apk_dex(apk)
+
+        engine = VerificationEngine()
+        check = engine.check_cmp_01(dex_summary)
+
+        assert check.status == "INFO"
+        assert check.outcome == "INFORMATIONAL"
+        assert check.name == "Informational Structural Inspection"
+        assert check.details["static_inspection_only"] is True
+        assert check.details["runtime_execution_tested"] is False
+        assert "runtime execution not tested" in check.observed_metric
+        assert (
+            "runtime verification requires execution testing"
+            in check.what_it_does_not_prove
+        )
+
+
 class TestReportGeneration:
     def test_full_report_deterministic_structure(self, tmp_path: Path) -> None:
         apk = create_test_apk(
@@ -458,6 +578,7 @@ class TestReportGeneration:
             duration_seconds=2.0,
             command=["gradlew", "assembleRelease"],
             is_simulated=False,
+            metadata={"build_id": "build_test_123"},
         )
 
         engine = VerificationEngine(project_name="my_test_app")
@@ -482,6 +603,9 @@ class TestReportGeneration:
         assert report.summary["total_checks"] == 7
         assert report.summary["failed"] == 0
         assert report.is_verified_protected is True
+        assert report.artifact.get("mapping_sha256") is not None
+        assert len(report.artifact["mapping_sha256"]) == 64
+        assert report.artifact.get("build_id") == "build_test_123"
 
         # Export JSON
         out_json = tmp_path / "audit_report.json"
@@ -491,6 +615,10 @@ class TestReportGeneration:
         parsed_json = json.loads(out_json.read_text(encoding="utf-8"))
         assert parsed_json["project_name"] == "my_test_app"
         assert len(parsed_json["objective_checks"]) == 7
+        assert (
+            parsed_json["artifact"]["mapping_sha256"]
+            == report.artifact["mapping_sha256"]
+        )
 
         # Terminal format
         term_text = format_report_terminal(report)
@@ -501,6 +629,81 @@ class TestReportGeneration:
         md_text = format_report_markdown(report)
         assert "# AppShield Verification Report: my_test_app" in md_text
         assert "| `CHK-SYM-01` |" in md_text
+
+    def test_build_artifact_association_and_inconsistency_rejection(
+        self, tmp_path: Path
+    ) -> None:
+        apk = create_test_apk(
+            tmp_path / "app.apk",
+            classes=["a.a", "com.example.sample.MainActivity"],
+        )
+        different_apk = tmp_path / "different.apk"
+        different_apk.write_bytes(b"dummy_content")
+
+        map_file = tmp_path / "mapping.txt"
+        map_file.write_text(SAMPLE_R8_MAPPING, encoding="utf-8")
+        different_map = tmp_path / "different_mapping.txt"
+        different_map.write_text("# compiler: R8\n", encoding="utf-8")
+
+        build_res_mismatched_apk = GradleBuildResult(
+            success=True,
+            exit_code=0,
+            stdout="OK",
+            stderr="",
+            duration_seconds=1.0,
+            command=["gradlew"],
+            apk_path=different_apk,
+            mapping_file=map_file,
+            is_simulated=False,
+            metadata={"build_id": "build-999"},
+        )
+
+        engine = VerificationEngine()
+        with (
+            patch("appshield.verify.find_zipalign", return_value=Path("/bin/zipalign")),
+            patch("appshield.verify.verify_zipalign", return_value=True),
+        ):
+            # Mismatched APK between build_res and inspected APK
+            report = engine.run_all_checks(
+                apk_path=apk,
+                mapping_file=map_file,
+                build_result=build_res_mismatched_apk,
+                is_real_build=True,
+            )
+            assert report.is_verified_protected is False
+            bld_check = next(
+                c for c in report.objective_checks if c.check_id == "CHK-BLD-01"
+            )
+            assert bld_check.status == "FAIL"
+            assert "does not match build result artifact" in bld_check.observed_metric
+
+            # Mismatched mapping between build_res and inspected mapping
+            build_res_mismatched_map = GradleBuildResult(
+                success=True,
+                exit_code=0,
+                stdout="OK",
+                stderr="",
+                duration_seconds=1.0,
+                command=["gradlew"],
+                apk_path=apk,
+                mapping_file=different_map,
+                is_simulated=False,
+                metadata={"build_id": "build-999"},
+            )
+            report_map_mismatch = engine.run_all_checks(
+                apk_path=apk,
+                mapping_file=map_file,
+                build_result=build_res_mismatched_map,
+                is_real_build=True,
+            )
+            assert report_map_mismatch.is_verified_protected is False
+            bld_check2 = next(
+                c
+                for c in report_map_mismatch.objective_checks
+                if c.check_id == "CHK-BLD-01"
+            )
+            assert bld_check2.status == "FAIL"
+            assert "does not match build result mapping" in bld_check2.observed_metric
 
 
 class TestSigningCredentialIsolationBoundary:

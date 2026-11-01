@@ -110,6 +110,11 @@ class TestDexHeaderParsing:
         with pytest.raises(DexVersionError, match="Unsupported DEX version"):
             parse_dex_header(data)
 
+    def test_dex_version_041_explicitly_rejected(self) -> None:
+        data = DEX_MAGIC + b"041\0" + b"\x00" * 104
+        with pytest.raises(DexVersionError, match="Container DEX format"):
+            parse_dex_header(data)
+
     def test_invalid_endian_tag(self) -> None:
         raw = create_synthetic_dex(["com.example.Foo"])
         # Mutate endian tag at offset 40

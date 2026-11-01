@@ -483,6 +483,22 @@ def test_stage_rules_rejects_forbidden_test_symbols(
         adapter.stage_rules(staging_dir, custom_rules_file=bad_file)
 
 
+def test_stage_rules_permits_allowobfuscation_rules(tmp_path: Path):
+    """Verify that keep rules with 'allowobfuscation' are permitted (they allow obfuscation rather than preserving original names)."""
+    proj = create_minimal_android_project(tmp_path)
+    staging_dir = tmp_path / "staged_proj_allow"
+    import shutil
+
+    shutil.copytree(proj, staging_dir)
+
+    adapter = AndroidPipelineAdapter()
+    permitted_rule = "-keep,allowobfuscation class com.appshield.sample.IdentifiableSecretService { public <methods>; }"
+    staged_rules_file = adapter.stage_rules(staging_dir, custom_rules=permitted_rule)
+    content = staged_rules_file.read_text(encoding="utf-8")
+    assert "allowobfuscation" in content
+    assert "IdentifiableSecretService" in content
+
+
 def test_stage_rules_error_handling(tmp_path: Path):
     """Verify error handling on invalid staging directory or missing rules file."""
     adapter = AndroidPipelineAdapter()
