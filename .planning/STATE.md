@@ -39,6 +39,7 @@ Progress: [████████░░] 75%
 
 ### Decisions
 
+- [Phase 4 Audit]: Hardened `appshield doctor` prerequisite reporting: marked Android SDK (`ANDROID_HOME`), SDK Platform 34, Build-Tools 34.0.0, `zipalign`, and `apksigner` as strictly required (`required=True`) because a verified protected test-signed release cannot be built without them.
 - [Phase 4 Audit]: Audited release acceptance gate in `is_verified_protected`: tightened gate to mandate PASS for CHK-BLD-01, CHK-APK-01, CHK-SYM-01, CHK-ALN-01 (zipalign cannot be skipped/unsupported), CHK-SIG-01 (when signing enabled), 0 failures, and 0 inconclusive checks. Added 3 regression tests in `TestReleaseAcceptanceGate` (total 279 tests, 93% coverage).
 - [Phase 1]: Orchestrator pattern chosen over building an in-house obfuscator core (preserves stability, prevents decompilation compiler bugs).
 - [Phase 1]: Isolated staging sandbox design with immutable source inputs (original files treated as read-only).
