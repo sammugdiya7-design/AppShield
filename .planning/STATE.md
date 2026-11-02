@@ -23,8 +23,8 @@ See: `MEMORY.md` (root operational memory) and `.planning/PROJECT.md` (updated 2
 
 Phase: 4 of 7 (Android Protection Pipeline & Verification Engine)  
 Plan: Plan 04-04 Complete (End-to-End CLI Integration, Automated Test Matrix & Security Validation)  
-Status: Phase 4 completed and verified with 276 passing tests, 93% coverage, 0 lint/type/security issues; ready for user review before Phase 5  
-Last activity: 2026-11-02 — Implemented Plan 04-04: Full 16-step Android protection lifecycle coordination in `AndroidPipelineAdapter.stage_and_protect()`, wired `appshield protect` and `appshield verify` CLI commands with simulation barrier and release acceptance gates, added 11 end-to-end integration tests in `tests/test_android_pipeline.py` (total 276 tests), and verified 0 secret leakage.
+Status: Phase 4 completed and verified with 279 passing tests, 93% coverage, 0 lint/type/security issues; ready for user review before Phase 5  
+Last activity: 2026-11-02 — Implemented Plan 04-04: Full 16-step Android protection lifecycle coordination in `AndroidPipelineAdapter.stage_and_protect()`, wired `appshield protect` and `appshield verify` CLI commands with simulation barrier and release acceptance gates, added 11 end-to-end integration tests in `tests/test_android_pipeline.py` (total 279 tests), and verified 0 secret leakage.
 
 Progress: [████████░░] 75%
 
@@ -39,6 +39,7 @@ Progress: [████████░░] 75%
 
 ### Decisions
 
+- [Phase 4 Audit]: Audited release acceptance gate in `is_verified_protected`: tightened gate to mandate PASS for CHK-BLD-01, CHK-APK-01, CHK-SYM-01, CHK-ALN-01 (zipalign cannot be skipped/unsupported), CHK-SIG-01 (when signing enabled), 0 failures, and 0 inconclusive checks. Added 3 regression tests in `TestReleaseAcceptanceGate` (total 279 tests, 93% coverage).
 - [Phase 1]: Orchestrator pattern chosen over building an in-house obfuscator core (preserves stability, prevents decompilation compiler bugs).
 - [Phase 1]: Isolated staging sandbox design with immutable source inputs (original files treated as read-only).
 - [Phase 1]: Verification-driven architecture (automated JADX/symbol audit to generate empirical resistance reports).
