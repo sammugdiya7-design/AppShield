@@ -557,12 +557,16 @@ import zipfile
 from unittest.mock import MagicMock, patch
 
 from appshield.config import OverwriteError
+from appshield.dex import create_synthetic_dex
 from appshield.gradle import GradleBuildResult
 from appshield.signing import SigningResult
 
 
 def create_dummy_apk(
-    path: Path, include_manifest: bool = True, include_dex: bool = True
+    path: Path,
+    include_manifest: bool = True,
+    include_dex: bool = True,
+    classes: list[str] | None = None,
 ) -> Path:
     """Helper to create a minimal synthetic valid zip archive representing an APK."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -570,7 +574,8 @@ def create_dummy_apk(
         if include_manifest:
             zf.writestr("AndroidManifest.xml", b"<dummy-manifest/>")
         if include_dex:
-            zf.writestr("classes.dex", b"<dummy-dex-bytecode/>")
+            dex_classes = classes or ["a.a", "a.b", "com.example.sample.MainActivity"]
+            zf.writestr("classes.dex", create_synthetic_dex(classes=dex_classes))
         zf.writestr("resources.arsc", b"<dummy-resources/>")
     return path
 
@@ -612,6 +617,7 @@ def test_stage_and_protect_mocked_end_to_end_success(tmp_path: Path):
     adapter = AndroidPipelineAdapter()
 
     mock_runner = MagicMock()
+    mock_runner.is_simulated = False
 
     def fake_run(tasks: str, **kwargs: object) -> GradleBuildResult:
         # Simulate Gradle build producing release APK inside staging sandbox
@@ -625,6 +631,23 @@ def test_stage_and_protect_mocked_end_to_end_success(tmp_path: Path):
             / "app-release-unsigned.apk"
         )
         create_dummy_apk(apk_path)
+        mapping_path = (
+            mock_runner.project_dir
+            / "app"
+            / "build"
+            / "outputs"
+            / "mapping"
+            / "release"
+            / "mapping.txt"
+        )
+        mapping_path.parent.mkdir(parents=True, exist_ok=True)
+        mapping_path.write_text(
+            """com.example.sample.IdentifiableSecretService -> a.a:
+com.example.sample.PaymentSecurityValidator -> a.b:
+com.example.sample.MainActivity -> com.example.sample.MainActivity:
+""",
+            encoding="utf-8",
+        )
         return GradleBuildResult(
             success=True,
             exit_code=0,
@@ -632,6 +655,8 @@ def test_stage_and_protect_mocked_end_to_end_success(tmp_path: Path):
             stderr="",
             duration_seconds=1.5,
             command=["gradlew", tasks],
+            apk_path=apk_path,
+            mapping_file=mapping_path,
         )
 
     mock_runner.run_task.side_effect = fake_run

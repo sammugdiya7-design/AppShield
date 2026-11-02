@@ -53,9 +53,9 @@ A simple, local, cross-platform application code-protection CLI for developers t
 ## 3. Current Phase & Progress
 
 - **Current Phase**: Phase 4: Android Protection Pipeline & Verification Engine
-- **Current Plan**: Plan 04-03 Complete; Plan 04-04 Pending
-- **Status**: Plan 04-03 verified (empirical verification engine, DEX inspector, string pool scanner, R8 mapping auditor, dual-evidence symbol verification, 7 objective checks, 255 tests, 94% coverage); ready for user review
-- **Overall Progress**: 67% (Phases 1, 2, & 3 complete; 8 of 12 total plans completed)
+- **Current Plan**: Plan 04-04 Complete
+- **Status**: Phase 4 fully implemented and verified (CLI commands `protect` and `verify` wired to Android pipeline adapter and empirical verification engine; release acceptance gate and strict simulation barrier enforced; 276 automated tests passing with 93% coverage; ruff/mypy/bandit 100% clean; toolchain status accurately reported as 0 live builds validated pending workstation with complete toolchain).
+- **Overall Progress**: 75% (Phases 1, 2, 3, & 4 complete; 9 of 12 total plans completed)
 
 ---
 
@@ -123,9 +123,20 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Environment variable isolation (Requirement 7): Verified signing passwords (`APPSHIELD_KS_PASS`, etc.) never leak into subprocess environments.
   - Automated tests: Added 25 unit tests in `tests/test_dex.py` and 25 unit tests in `tests/test_verify_engine.py` (total 255 tests across suite) passing with 94% code coverage (`dex.py`: 96%, `mapping.py`: 98%, `verify.py`: 91%).
   - Static analysis: `ruff check` (0 errors), `ruff format` (clean), `mypy` (0 errors in 23 source files), `bandit` (0 issues).
+- [x] Completed Plan 04-04: End-to-End CLI Integration, Automated Test Matrix, and Security Validation:
+  - `appshield/cli.py`: Wired `appshield protect` and `appshield verify` commands directly into `AndroidPipelineAdapter.stage_and_protect()` and `VerificationEngine.run_all_checks()`. Added CLI options `--allow-production-signing`, `--mapping-out`, `-m / --mapping-file`, and `-o / --output`.
+  - Full protection lifecycle coordination: Integrates preflight validation, prerequisite checking, ephemeral staging in sandbox, R8 rule injection, Gradle build execution, APK and mapping file extraction, unsigned alignment, APK signing (test vs production authorization), empirical verification of all 7 checks, JSON (`audit_report.json`) and Markdown (`audit_report.md`) audit generation, source tree immutability verification, and release acceptance export.
+  - Strict simulation barrier: Rejects simulated/mocked runners in production workflows; even under test execution with `allow_simulated=True`, artifacts from simulated runs are NEVER exported into `dist/protected/`.
+  - Release acceptance gate: Enforces that `is_verified_protected` requires a real toolchain build (`CHK-BLD-01` PASS), valid APK archive and parseable DEX (`CHK-APK-01` PASS), verified renaming of target classes in mapping and compiled DEX (`CHK-SYM-01` PASS), zero check failures across all checks, and identical source tree SHA-256 hashes.
+  - Mapping security & privacy: `mapping.txt` is retained privately only when `--mapping-out` is provided; never placed in public output directories, never committed, and raw mappings never displayed in public audit reports.
+  - Test suite expansion: Added comprehensive end-to-end integration test suite in `tests/test_android_pipeline.py` (11 tests) and expanded CLI tests in `tests/test_cli.py` (total 276 tests across suite) passing with 93% code coverage.
+  - Static analysis: `ruff check` (0 errors), `ruff format` (clean), `mypy` (0 errors in 24 source files), `bandit` (0 issues).
+  - Honest Toolchain Reporting: Acknowledges that local host lacks complete toolchain (JDK 17, Android SDK 34, wrapper JAR); live builds remain unvalidated (0 live builds validated) pending a workstation with full toolchain installed.
 
-### Pending Tasks (Phase 4 Decomposed Plans)
-- [ ] Plan 04-04: End-to-End CLI Integration, Automated Test Matrix & Security Validation.
+### Pending Tasks (Phase 5+)
+- [ ] Phase 5: iOS Protection Engine & Mach-O Sanitization (Plans 05-01 through 05-03)
+- [ ] Phase 6: Windows Protection Engine & AV Safety (Plans 06-01 through 06-03)
+- [ ] Phase 7: Portfolio Polish, Documentation & GitHub Release (Plans 07-01 through 07-02)
 
 ---
 

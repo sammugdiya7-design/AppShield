@@ -21,20 +21,20 @@ Requirements committed for v1 release (Phases 1–4).
 
 ### Android Protection Engine
 
-- [ ] **AND-01**: `doctor` subcommand checks for local Android SDK prerequisites (`java`, `apksigner`, `zipalign`, Android build-tools) and reports missing dependencies cleanly.
-- [ ] **AND-02**: Engine orchestrates protection via supported Android Gradle Plugin (AGP) and R8 build toolchain on Android Gradle projects; arbitrary precompiled APK input is unsupported in MVP.
-- [ ] **AND-03**: Engine supports safe local APK signing and alignment; credentials read strictly via environment variable names; no automatic production signing.
+- [x] **AND-01**: `doctor` subcommand checks for local Android SDK prerequisites (`java`, `apksigner`, `zipalign`, Android build-tools) and reports missing dependencies cleanly.
+- [x] **AND-02**: Engine orchestrates protection via supported Android Gradle Plugin (AGP) and R8 build toolchain on Android Gradle projects; arbitrary precompiled APK input is unsupported in MVP.
+- [x] **AND-03**: Engine supports safe local APK signing and alignment; credentials read strictly via environment variable names; no automatic production signing.
 
 ### Verification & Honest Reporting
 
-- [ ] **VER-01**: Post-build automated verification executes objective empirical checks (identifier renaming ratio, string pool inspection, signature integrity, zip alignment).
-- [ ] **VER-02**: Precise evidentiary classification: identifier renaming is evidence of obfuscation (not impossible reverse engineering), string scans detect patterns without absolute guarantees, signature checks prove signature validity (not app safety), and decompilation checks are informational.
-- [ ] **VER-03**: Report generator outputs objective metrics and explicit evidentiary definitions without any composite security scores.
+- [x] **VER-01**: Post-build automated verification executes objective empirical checks (identifier renaming ratio, string pool inspection, signature integrity, zip alignment).
+- [x] **VER-02**: Precise evidentiary classification: identifier renaming is evidence of obfuscation (not impossible reverse engineering), string scans detect patterns without absolute guarantees, signature checks prove signature validity (not app safety), and decompilation checks are informational.
+- [x] **VER-03**: Report generator outputs objective metrics and explicit evidentiary definitions without any composite security scores.
 
 ### Permanent Review & Governance
 
 - [x] **GOV-01**: Automated test execution harness (`pytest`) integrated and enforced across every task, plan, and code change.
-- [ ] **GOV-02**: Execution of the mandatory 10-step full review process (tests, code review, static analysis/linting/typing, security scans, secret/file safety checks, complexity checks, acceptance checks, honest status reporting, MEMORY.md sync, change summary).
+- [x] **GOV-02**: Execution of the mandatory 10-step full review process (tests, code review, static analysis/linting/typing, security scans, secret/file safety checks, complexity checks, acceptance checks, honest status reporting, MEMORY.md sync, change summary).
 - [x] **GOV-03**: Zero-credential leakage assurance — strict masking and prevention of private signing keys, keystore passwords, or sensitive application code appearing in logs, temp files, or version control.
 - [x] **GOV-04**: Disposable sample test policy — all destructive or mutating operations run strictly on disposable fixtures (`tests/fixtures/sample_android_gradle_project/`); developer source files remain untouched.
 

@@ -190,23 +190,53 @@ def test_cli_protect_overwrite_allowed(tmp_path: Path, capsys):
         ToolReport("JAVA_HOME Variable", True, "/usr/lib/jvm/default", True, ""),
         ToolReport("Gradle Build Tool", True, "gradlew", True, ""),
     ]
-    with patch("appshield.cli.run_doctor_checks", return_value=mock_reports):
+    from appshield.adapters.base import ProtectionResult
+
+    with (
+        patch("appshield.cli.run_doctor_checks", return_value=mock_reports),
+        patch(
+            "appshield.cli.AndroidPipelineAdapter.stage_and_protect",
+            return_value=ProtectionResult(
+                success=True,
+                protected_artifact_path=target_apk,
+                logs=["Staging complete", "Build complete"],
+            ),
+        ),
+    ):
         code = main(["protect", "-c", str(cfg), "--overwrite"])
 
     assert code == 0
     captured = capsys.readouterr()
     assert "PREFLIGHT VALIDATION: SUCCESSFUL" in captured.out
-    assert (
-        "NOTICE: The protection engine is NOT implemented in Plan 03-01" in captured.out
+    assert "Protection SUCCEEDED" in captured.out
+
+
+def test_cli_protect_unsupported_platform(tmp_path: Path, capsys):
+    """'appshield protect' rejects platforms other than android in v1 MVP."""
+    proj = tmp_path / "ios_proj"
+    proj.mkdir()
+
+    cfg = tmp_path / "appshield.json"
+    cfg.write_text(
+        f"""{{
+        "version": "1.0",
+        "project_name": "ios_app",
+        "platform": "ios",
+        "input": {{ "project_dir": "{proj.as_posix()}" }},
+        "output": {{ "dir": "{tmp_path.as_posix()}/dist" }}
+    }}""",
+        encoding="utf-8",
     )
 
+    code = main(["protect", "-c", str(cfg)])
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "Platform 'ios' is not supported yet" in captured.err
 
-def test_cli_protect_unimplemented_notice(tmp_path: Path, capsys):
-    """
-    Test that 'protect' explicitly communicates that the protection engine
-    is NOT implemented in Plan 03-01 and does NOT claim to protect anything.
-    """
-    proj = tmp_path / "my_android_proj"
+
+def test_cli_protect_flags_forwarded(tmp_path: Path, capsys):
+    """Verify --allow-production-signing and --mapping-out are passed to stage_and_protect."""
+    proj = tmp_path / "android_proj"
     proj.mkdir()
     (proj / "gradlew").write_text("#!/bin/sh", encoding="utf-8")
 
@@ -214,7 +244,7 @@ def test_cli_protect_unimplemented_notice(tmp_path: Path, capsys):
     cfg.write_text(
         f"""{{
         "version": "1.0",
-        "project_name": "demo_app",
+        "project_name": "test_app",
         "platform": "android",
         "input": {{ "project_dir": "{proj.as_posix()}" }},
         "output": {{ "dir": "{tmp_path.as_posix()}/dist" }}
@@ -227,20 +257,38 @@ def test_cli_protect_unimplemented_notice(tmp_path: Path, capsys):
         ToolReport("JAVA_HOME Variable", True, "/usr/lib/jvm/default", True, ""),
         ToolReport("Gradle Build Tool", True, "gradlew", True, ""),
     ]
-    with patch("appshield.cli.run_doctor_checks", return_value=mock_reports):
-        code = main(["protect", "-c", str(cfg)])
+    mapping_out = tmp_path / "retained_mapping.txt"
+    from appshield.adapters.base import ProtectionResult
+
+    with (
+        patch("appshield.cli.run_doctor_checks", return_value=mock_reports),
+        patch(
+            "appshield.cli.AndroidPipelineAdapter.stage_and_protect",
+            return_value=ProtectionResult(
+                success=True,
+                protected_artifact_path=tmp_path
+                / "dist"
+                / "test_app-release-protected.apk",
+                logs=["Protected build executed"],
+            ),
+        ) as mock_stage,
+    ):
+        code = main(
+            [
+                "protect",
+                "-c",
+                str(cfg),
+                "--allow-production-signing",
+                "--mapping-out",
+                str(mapping_out),
+            ]
+        )
 
     assert code == 0
-    captured = capsys.readouterr()
-    assert "PREFLIGHT VALIDATION: SUCCESSFUL." in captured.out
-    assert (
-        "NOTICE: The protection engine is NOT implemented in Plan 03-01."
-        in captured.out
-    )
-    assert (
-        "The Android Gradle + R8 protection workflow will be implemented and validated in Phase 4."
-        in captured.out
-    )
+    assert mock_stage.call_count == 1
+    call_kwargs = mock_stage.call_args.kwargs
+    assert call_kwargs["allow_production_signing"] is True
+    assert call_kwargs["mapping_out"] == mapping_out
 
 
 def test_cli_protect_missing_prerequisites(tmp_path: Path, capsys):
@@ -291,44 +339,81 @@ def test_cli_verify_artifact_is_directory(tmp_path: Path, capsys):
     assert "Target path is not a file" in captured.err
 
 
-def test_cli_verify_unimplemented_notice(tmp_path: Path, capsys):
-    """
-    Test that 'verify' validates that the artifact file exists,
-    explicitly lists objective checks as UNAVAILABLE in Plan 03-01,
-    and states that no composite security scores will be generated.
-    """
-    dummy_apk = tmp_path / "app-release.apk"
-    dummy_apk.write_text("dummy binary content", encoding="utf-8")
+def test_cli_verify_success_with_valid_apk(tmp_path: Path, capsys):
+    """'appshield verify' runs objective checks against an APK and prints terminal report."""
+    import zipfile
 
-    code = main(["verify", str(dummy_apk)])
+    from appshield.dex import create_synthetic_dex
+
+    apk_file = tmp_path / "valid.apk"
+    dex_bytes = create_synthetic_dex(classes=["a.a", "a.b", "MainActivity"])
+    with zipfile.ZipFile(apk_file, "w") as zf:
+        zf.writestr("AndroidManifest.xml", b"<dummy/>")
+        zf.writestr("classes.dex", dex_bytes)
+
+    code = main(["verify", str(apk_file)])
     assert code == 0
     captured = capsys.readouterr()
-    assert "Artifact validated: File exists and is readable." in captured.out
-    assert (
-        "[CHK-SYM-01] Identifier Renaming Ratio      : UNAVAILABLE (Planned for Phase 4)"
-        in captured.out
+    assert "AppShield Empirical Verification Report" in captured.out
+    assert "CHK-APK-01" in captured.out
+    assert "Objective Verification Checks" in captured.out
+
+
+def test_cli_verify_with_mapping_and_json_output(tmp_path: Path, capsys):
+    """'appshield verify' uses provided -m mapping and exports -o JSON report."""
+    import json
+    import zipfile
+
+    from appshield.dex import create_synthetic_dex
+
+    apk_file = tmp_path / "app.apk"
+    dex_bytes = create_synthetic_dex(classes=["a.a", "a.b", "MainActivity"])
+    with zipfile.ZipFile(apk_file, "w") as zf:
+        zf.writestr("AndroidManifest.xml", b"<dummy/>")
+        zf.writestr("classes.dex", dex_bytes)
+
+    mapping_file = tmp_path / "mapping.txt"
+    mapping_file.write_text(
+        """com.example.sample.IdentifiableSecretService -> a.a:
+com.example.sample.PaymentSecurityValidator -> a.b:
+com.example.sample.MainActivity -> MainActivity:
+""",
+        encoding="utf-8",
     )
-    assert (
-        "[CHK-STR-01] String Pool Constant Scan      : UNAVAILABLE (Planned for Phase 4)"
-        in captured.out
+    json_out = tmp_path / "report.json"
+
+    code = main(
+        [
+            "verify",
+            str(apk_file),
+            "-m",
+            str(mapping_file),
+            "-o",
+            str(json_out),
+        ]
     )
-    assert (
-        "[CHK-SIG-01] APK Signature Verification     : UNAVAILABLE (Planned for Phase 4)"
-        in captured.out
-    )
-    assert (
-        "[CHK-ALN-01] Zip Alignment Verification     : UNAVAILABLE (Planned for Phase 4)"
-        in captured.out
-    )
-    assert (
-        "[CHK-DEC-01] Structural Decompilation Check : UNAVAILABLE (Planned for Phase 4)"
-        in captured.out
-    )
-    assert (
-        "NOTICE: Objective verification checks are NOT implemented in Plan 03-01."
-        in captured.out
-    )
-    assert "No composite security scores will be generated." in captured.out
+    assert code == 0
+    assert json_out.is_file()
+    data = json.loads(json_out.read_text(encoding="utf-8"))
+    assert data["audit_version"] == "1.0"
+    assert len(data["objective_checks"]) == 7
+    captured = capsys.readouterr()
+    assert f"Audit report exported to: '{json_out.resolve()}'" in captured.out
+
+
+def test_cli_verify_missing_mapping_file(tmp_path: Path, capsys):
+    """'appshield verify' exits 1 if specified mapping file does not exist."""
+    import zipfile
+
+    apk_file = tmp_path / "app.apk"
+    with zipfile.ZipFile(apk_file, "w") as zf:
+        zf.writestr("AndroidManifest.xml", b"<dummy/>")
+
+    missing_map = tmp_path / "nonexistent_mapping.txt"
+    code = main(["verify", str(apk_file), "-m", str(missing_map)])
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "Mapping file not found" in captured.err
 
 
 def test_cli_protect_cli_overrides(tmp_path: Path, capsys):
@@ -357,7 +442,20 @@ def test_cli_protect_cli_overrides(tmp_path: Path, capsys):
         ToolReport("JAVA_HOME Variable", True, "/usr/lib/jvm/default", True, ""),
         ToolReport("Gradle Build Tool", True, "gradlew", True, ""),
     ]
-    with patch("appshield.cli.run_doctor_checks", return_value=mock_reports):
+    from appshield.adapters.base import ProtectionResult
+
+    with (
+        patch("appshield.cli.run_doctor_checks", return_value=mock_reports),
+        patch(
+            "appshield.cli.AndroidPipelineAdapter.stage_and_protect",
+            return_value=ProtectionResult(
+                success=True,
+                protected_artifact_path=override_out
+                / "override_app-release-protected.apk",
+                logs=["Protected override"],
+            ),
+        ),
+    ):
         code = main(
             [
                 "protect",

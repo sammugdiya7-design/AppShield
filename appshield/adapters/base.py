@@ -64,13 +64,16 @@ class ProjectInspection:
 
 @dataclass(frozen=True)
 class ProtectionResult:
-    """Result of a protection pipeline execution (for future plans)."""
+    """Result of a protection pipeline execution."""
 
     success: bool
     protected_artifact_path: Path | None
     logs: list[str] = field(default_factory=list)
     error_message: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    verification_report: Any | None = None
+    audit_report_path: Path | None = None
+    is_verified_protected: bool = False
 
 
 class PlatformAdapter(ABC):

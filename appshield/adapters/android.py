@@ -22,9 +22,15 @@ from appshield.gradle import (
     GradleRunner,
     locate_build_apk,
     locate_r8_mapping,
+    validate_apk_file,
 )
 from appshield.sandbox import SandboxManager
 from appshield.signing import align_and_sign_apk
+from appshield.verify import (
+    VerificationEngine,
+    export_report_json,
+    format_report_markdown,
+)
 
 # Standard AppShield R8 hardening rules to inject into staging workspace
 APPSHIELD_STANDARD_R8_RULES = """
@@ -533,19 +539,29 @@ class AndroidPipelineAdapter(PlatformAdapter):
         config: AppShieldConfig,
         allow_production_signing: bool = False,
         runner: GradleRunner | None = None,
+        allow_simulated: bool = False,
+        mapping_out: Path | None = None,
+        expected_fixture_classes: list[str] | None = None,
+        expected_entry_points: list[str] | None = None,
     ) -> ProtectionResult:
         """
-        Execute the full Android protection pipeline:
+        Execute the full 16-step Android protection pipeline:
           1. Validate project layout and release build configuration.
           2. Check host toolchain prerequisites; halt safely if required tools are missing.
           3. Validate output destination overwrite guards.
-          4. Stage project in ephemeral sandbox with sensitive exclusions.
+          4. Create isolated staging workspace copy.
           5. Inject AppShield R8 protection rules into staging rules file.
           6. Execute release build task via GradleRunner in sandbox.
-          7. Locate and validate the generated release APK and R8 mapping.
-          8. Align and sign the APK inside the sandbox.
-          9. Safely export the protected artifact to destination directory.
-          10. Verify original source tree immutability.
+          7. Locate and validate the generated release APK.
+          8. Locate and securely retain associated R8 mapping file.
+          9. Align unsigned APK inside sandbox.
+          10. Sign APK using explicitly configured test or production mode.
+          11. Verify signature and alignment.
+          12. Execute all 7 empirical verification checks.
+          13. Generate and export audit_report.json and readable markdown summary.
+          14. Verify original source tree immutability.
+          15. Export protected artifact only when release acceptance conditions are met.
+          16. Clean up staging files safely.
         """
         # 1. Validate project structure
         inspection = self.validate_project(config.input.project_dir)
@@ -580,7 +596,7 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 )
 
         # 3. Validate output destination overwrite safeguards
-        module_name = getattr(config.android, "module_name", "app")
+        module_name = getattr(config.android, "module_name", "app") or "app"
         target_filename = (
             f"{config.project_name}-{config.android.build_variant}-protected.apk"
         )
@@ -590,11 +606,28 @@ class AndroidPipelineAdapter(PlatformAdapter):
             allow_overwrite=config.output.overwrite_existing,
         )
 
+        # 4. Strict simulation barrier
+        if (
+            runner is not None
+            and getattr(runner, "is_simulated", False) is True
+            and not allow_simulated
+        ):
+            return ProtectionResult(
+                success=False,
+                protected_artifact_path=None,
+                logs=["Simulated runner rejected."],
+                error_message=(
+                    "Simulated execution is forbidden in production protection workflows. "
+                    "A real toolchain execution is required."
+                ),
+                metadata={"is_simulated": "True"},
+            )
+
         logs: list[str] = [
             "Starting Android Gradle protection pipeline in isolated staging sandbox."
         ]
 
-        # 4. Isolated Staging Sandbox
+        # 5. Isolated Staging Sandbox
         sandbox = SandboxManager(
             source_dir=config.input.project_dir,
             exclude_patterns=config.input.exclude_patterns,
@@ -605,7 +638,7 @@ class AndroidPipelineAdapter(PlatformAdapter):
             staging_dir = sandbox.staging_dir
             logs.append(f"Project staged in ephemeral sandbox: '{staging_dir}'")
 
-            # 5. Inject R8 protection rules into staging workspace
+            # 6. Inject R8 protection rules into staging workspace
             staged_rules_file = self.stage_rules(
                 staging_dir=staging_dir,
                 custom_rules_file=config.android.r8_rules_file,
@@ -614,7 +647,7 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 f"Injected AppShield R8 protection rules into '{staged_rules_file.name}'"
             )
 
-            # 6. Execute Gradle build inside staging sandbox
+            # 7. Execute Gradle build inside staging sandbox
             if runner is not None:
                 active_runner = runner
                 if hasattr(active_runner, "project_dir"):
@@ -628,19 +661,36 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 )
 
             build_res = active_runner.run_task(config.android.gradle_task)
+            if not build_res.success:
+                err_diag = build_res.stderr or build_res.stdout or "Unknown build error"
+                logs.append(
+                    f"Gradle task '{config.android.gradle_task}' failed with exit code {build_res.exit_code}."
+                )
+                return ProtectionResult(
+                    success=False,
+                    protected_artifact_path=None,
+                    logs=logs,
+                    error_message=f"Gradle build task '{config.android.gradle_task}' failed (exit code {build_res.exit_code}): {err_diag}",
+                    metadata={
+                        "exit_code": str(build_res.exit_code),
+                        "is_simulated": str(build_res.is_simulated),
+                    },
+                )
+
             logs.append(
                 f"Gradle task '{config.android.gradle_task}' succeeded in {build_res.duration_seconds:.2f}s."
             )
 
-            # 7. Locate built APK artifact
+            # 8. Locate built APK artifact and validate
             raw_apk = locate_build_apk(
                 staging_dir=staging_dir,
                 module_name=module_name,
                 build_variant=config.android.build_variant,
             )
-            logs.append(f"Located release APK: '{raw_apk.name}'")
+            validate_apk_file(raw_apk)
+            logs.append(f"Located and validated release APK: '{raw_apk.name}'")
 
-            # 8. Locate R8 mapping file
+            # 9. Locate R8 mapping file and securely retain if requested
             mapping_file = locate_r8_mapping(
                 staging_dir=staging_dir,
                 module_name=module_name,
@@ -648,8 +698,17 @@ class AndroidPipelineAdapter(PlatformAdapter):
             )
             if mapping_file:
                 logs.append(f"Located R8 mapping file: '{mapping_file.name}'")
+                if mapping_out is not None:
+                    mapping_out_path = mapping_out.resolve()
+                    mapping_out_path.parent.mkdir(parents=True, exist_ok=True)
+                    import shutil
 
-            # 9. Align and sign within staging sandbox
+                    shutil.copy2(mapping_file, mapping_out_path)
+                    logs.append(
+                        f"Securely retained R8 mapping file to '{mapping_out_path}'"
+                    )
+
+            # 10. Align and sign within staging sandbox
             signing_res = align_and_sign_apk(
                 unsigned_apk=raw_apk,
                 output_dir=staging_dir / "appshield_signing_temp",
@@ -661,31 +720,134 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 f"Alignment and signing completed: signature_type='{signing_res.signature_type}'"
             )
 
-            # 10. Safely export protected artifact to destination
-            rel_signed_apk = signing_res.final_apk_path.relative_to(staging_dir)
-            exported_path = sandbox.export_artifact(
-                staged_relative_path=rel_signed_apk,
-                output_dir=config.output.dir,
-                target_filename=target_filename,
-                allow_overwrite=config.output.overwrite_existing,
-            )
-            logs.append(f"Exported protected artifact to '{exported_path}'")
+            # Associate build result with the final aligned/signed APK for verification evidence
+            import dataclasses
 
-            # 11. Verify original source tree immutability
+            build_res = dataclasses.replace(
+                build_res,
+                apk_path=signing_res.final_apk_path,
+                mapping_file=mapping_file or build_res.mapping_file,
+            )
+
+            # 11. Execute all 7 empirical verification checks
+            engine = VerificationEngine(project_name=config.project_name)
+            fixtures = (
+                expected_fixture_classes
+                if expected_fixture_classes is not None
+                else [
+                    "IdentifiableSecretService",
+                    "PaymentSecurityValidator",
+                ]
+            )
+            entries = expected_entry_points or ["MainActivity"]
+
+            verification_report = engine.run_all_checks(
+                apk_path=signing_res.final_apk_path,
+                mapping_file=mapping_file,
+                signing_config=config.android.signing,
+                build_result=build_res,
+                is_real_build=not build_res.is_simulated,
+                expected_fixture_classes=fixtures,
+                expected_entry_points=entries,
+            )
+
+            # 12. Generate and export audit reports
+            audit_report_dest = config.output.dir / "audit_report.json"
+            audit_report_dest.parent.mkdir(parents=True, exist_ok=True)
+            export_report_json(verification_report, audit_report_dest)
+            logs.append(f"Generated verification audit report: '{audit_report_dest}'")
+
+            audit_md_dest = config.output.dir / "audit_report.md"
+            audit_md_dest.write_text(
+                format_report_markdown(verification_report), encoding="utf-8"
+            )
+
+            # 13. Verify original source tree immutability
             if config.input.verify_source_immutability:
                 sandbox.verify_source_integrity()
                 logs.append(
                     "Verified original source tree immutability (SHA-256 matches pre-build state)."
                 )
 
+            # 14. Release Acceptance & Simulation Barrier:
+            # Simulation/mocked execution is NEVER exported as a protected release
+            if build_res.is_simulated:
+                logs.append(
+                    "Simulation mode: Artifact export to production directory suppressed."
+                )
+                return ProtectionResult(
+                    success=False,
+                    protected_artifact_path=None,
+                    logs=logs,
+                    error_message=(
+                        "Simulated build artifacts are strictly prohibited from being exported as protected releases."
+                    ),
+                    metadata={
+                        "signature_type": signing_res.signature_type,
+                        "is_aligned": str(signing_res.is_aligned),
+                        "is_verified_protected": "False",
+                        "is_simulated": "True",
+                    },
+                    verification_report=verification_report,
+                    audit_report_path=audit_report_dest,
+                    is_verified_protected=False,
+                )
+
+            # Protected release acceptance criteria
+            is_acceptable = verification_report.is_verified_protected
+            exported_path = None
+            if is_acceptable:
+                rel_signed_apk = signing_res.final_apk_path.relative_to(staging_dir)
+                exported_path = sandbox.export_artifact(
+                    staged_relative_path=rel_signed_apk,
+                    output_dir=config.output.dir,
+                    target_filename=target_filename,
+                    allow_overwrite=config.output.overwrite_existing,
+                )
+                logs.append(
+                    f"Exported verified protected artifact to '{exported_path}'"
+                )
+            else:
+                logs.append(
+                    "Release acceptance failed: artifact did not meet all verified-protected criteria."
+                )
+                if config.verification.fail_on_check_failure:
+                    return ProtectionResult(
+                        success=False,
+                        protected_artifact_path=None,
+                        logs=logs,
+                        error_message=(
+                            "Protection verification failed: artifact did not meet all verified-protected criteria."
+                        ),
+                        metadata={
+                            "signature_type": signing_res.signature_type,
+                            "is_aligned": str(signing_res.is_aligned),
+                            "is_verified_protected": "False",
+                            "is_simulated": "False",
+                        },
+                        verification_report=verification_report,
+                        audit_report_path=audit_report_dest,
+                        is_verified_protected=False,
+                    )
+
             return ProtectionResult(
-                success=True,
+                success=is_acceptable,
                 protected_artifact_path=exported_path,
                 logs=logs,
+                error_message=(
+                    None if is_acceptable else "Artifact was not verified as protected."
+                ),
                 metadata={
                     "signature_type": signing_res.signature_type,
                     "is_aligned": str(signing_res.is_aligned),
                     "r8_mapping_found": str(mapping_file is not None),
                     "r8_mapping_path": str(mapping_file) if mapping_file else "",
+                    "is_verified_protected": str(
+                        verification_report.is_verified_protected
+                    ),
+                    "is_simulated": "False",
                 },
+                verification_report=verification_report,
+                audit_report_path=audit_report_dest,
+                is_verified_protected=verification_report.is_verified_protected,
             )

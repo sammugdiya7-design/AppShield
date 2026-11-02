@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import appshield
+from appshield.adapters.android import AndroidPipelineAdapter
 from appshield.config import (
     ConfigError,
     ConfigNotFoundError,
@@ -19,6 +20,11 @@ from appshield.config import (
     validate_output_destination,
 )
 from appshield.doctor import run_doctor_checks
+from appshield.verify import (
+    VerificationEngine,
+    export_report_json,
+    format_report_terminal,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -89,6 +95,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Authorize overwriting existing destination files.",
     )
+    protect_parser.add_argument(
+        "--allow-production-signing",
+        action="store_true",
+        default=False,
+        help="Explicitly authorize using a production signing keystore.",
+    )
+    protect_parser.add_argument(
+        "--mapping-out",
+        type=Path,
+        default=None,
+        help="Path to securely retain the generated R8 mapping.txt file.",
+    )
 
     # 4. verify
     verify_parser = subparsers.add_parser(
@@ -106,6 +124,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Optional path to configuration file.",
+    )
+    verify_parser.add_argument(
+        "-m",
+        "--mapping-file",
+        type=Path,
+        default=None,
+        help="Path to R8 mapping.txt file associated with the artifact.",
+    )
+    verify_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Path to export audit report JSON.",
     )
 
     return parser
@@ -198,6 +230,8 @@ def cmd_protect(
     output_dir: Path | None = None,
     platform: Path | None = None,
     overwrite: bool = False,
+    allow_production_signing: bool = False,
+    mapping_out: Path | None = None,
 ) -> int:
     """Handle `appshield protect` command."""
     print("AppShield Protect: Validating configuration and prerequisites...")
@@ -228,6 +262,14 @@ def cmd_protect(
     print(f"  - Platform     : {config.platform}")
     print(f"  - Input Dir    : {config.input.project_dir}")
     print(f"  - Output Dir   : {config.output.dir}")
+
+    # Validate target platform
+    if config.platform != "android":
+        print(
+            f"Error: Platform '{config.platform}' is not supported yet (only 'android' is supported in v1).",
+            file=sys.stderr,
+        )
+        return 1
 
     # Validate that input project directory exists
     if not config.input.project_dir.exists():
@@ -260,7 +302,7 @@ def cmd_protect(
         print(f"Overwrite Protection Error: {e}", file=sys.stderr)
         return 1
 
-    # Check prerequisites
+    # Check prerequisites via doctor checks
     doctor_res = cmd_doctor(config.input.project_dir)
     print("-----------------------------------------------------------------")
     if doctor_res != 0:
@@ -270,69 +312,107 @@ def cmd_protect(
         )
         return doctor_res
 
-    # IMPORTANT: Explicitly report that protection execution is NOT implemented in Plan 03-01
     print("PREFLIGHT VALIDATION: SUCCESSFUL.")
-    print("NOTICE: The protection engine is NOT implemented in Plan 03-01.")
-    print("Configuration, path validation, and overwrite protection checks completed.")
-    print(
-        "The Android Gradle + R8 protection workflow will be implemented and validated in Phase 4."
-    )
+    print("Starting Android Gradle + R8 protection workflow...")
     print("-----------------------------------------------------------------")
+
+    adapter = AndroidPipelineAdapter()
+    result = adapter.stage_and_protect(
+        config=config,
+        mapping_out=mapping_out,
+        allow_production_signing=allow_production_signing,
+    )
+
+    for log_msg in result.logs:
+        print(f"  [PIPELINE] {log_msg}")
+
+    if result.verification_report is not None:
+        print()
+        print(format_report_terminal(result.verification_report))
+
+    print("-----------------------------------------------------------------")
+    if not result.success:
+        err_msg = result.error_message or "Protection pipeline failed"
+        print(f"Protection FAILED: {err_msg}", file=sys.stderr)
+        return 1
+
+    print(f"Protection SUCCEEDED: '{result.protected_artifact_path}'")
+    if result.audit_report_path:
+        print(f"Audit Report: '{result.audit_report_path}'")
     return 0
 
 
-def cmd_verify(artifact_path: Path, config_path: Path | None = None) -> int:
+def cmd_verify(
+    artifact_path: Path,
+    config_path: Path | None = None,
+    mapping_file: Path | None = None,
+    output_path: Path | None = None,
+) -> int:
     """Handle `appshield verify` command."""
-    print("AppShield Verify: Inspecting artifact and reporting check capabilities...")
+    print("AppShield Verify: Inspecting artifact and running objective checks...")
     print(f"Target Artifact: {artifact_path}")
 
     resolved_artifact = artifact_path.resolve()
     if not resolved_artifact.exists():
         print(
-            f"Error: Target artifact not found: '{resolved_artifact}'", file=sys.stderr
+            f"Error: Target artifact not found: '{resolved_artifact}'",
+            file=sys.stderr,
         )
         return 1
 
     if not resolved_artifact.is_file():
         print(
-            f"Error: Target path is not a file: '{resolved_artifact}'", file=sys.stderr
+            f"Error: Target path is not a file: '{resolved_artifact}'",
+            file=sys.stderr,
         )
         return 1
 
-    print("Artifact validated: File exists and is readable.")
-    print("-----------------------------------------------------------------")
-    print("Objective Verification Capabilities Status (Plan 03-01):")
-    print(
-        "  [CHK-SYM-01] Identifier Renaming Ratio      : UNAVAILABLE (Planned for Phase 4)"
+    resolved_mapping: Path | None = None
+    if mapping_file is not None:
+        resolved_mapping = mapping_file.resolve()
+        if not resolved_mapping.exists():
+            print(
+                f"Error: Mapping file not found: '{resolved_mapping}'",
+                file=sys.stderr,
+            )
+            return 1
+        if not resolved_mapping.is_file():
+            print(
+                f"Error: Mapping path is not a file: '{resolved_mapping}'",
+                file=sys.stderr,
+            )
+            return 1
+
+    project_name = "AppShieldProject"
+    signing_config = None
+    if config_path is not None:
+        try:
+            cfg = load_config(config_path)
+            project_name = cfg.project_name
+            if cfg.platform == "android" and cfg.android:
+                signing_config = cfg.android.signing
+        except ConfigError as e:
+            print(f"Configuration Error: {e}", file=sys.stderr)
+            return 1
+
+    engine = VerificationEngine(project_name=project_name)
+    report = engine.run_all_checks(
+        apk_path=resolved_artifact,
+        mapping_file=resolved_mapping,
+        signing_config=signing_config,
+        build_result=None,
+        is_real_build=True,
     )
-    print(
-        "               Evidence Type: Heuristic (evidence of renaming per keep-rules)"
-    )
-    print(
-        "  [CHK-STR-01] String Pool Constant Scan      : UNAVAILABLE (Planned for Phase 4)"
-    )
-    print(
-        "               Evidence Type: Heuristic (pattern detection; no absolute guarantee)"
-    )
-    print(
-        "  [CHK-SIG-01] APK Signature Verification     : UNAVAILABLE (Planned for Phase 4)"
-    )
-    print("               Evidence Type: Verified (validity under signature rules)")
-    print(
-        "  [CHK-ALN-01] Zip Alignment Verification     : UNAVAILABLE (Planned for Phase 4)"
-    )
-    print("               Evidence Type: Verified (4-byte alignment check)")
-    print(
-        "  [CHK-DEC-01] Structural Decompilation Check : UNAVAILABLE (Planned for Phase 4)"
-    )
-    print("               Evidence Type: Informational (Dalvik format syntax check)")
-    print("-----------------------------------------------------------------")
-    print("NOTICE: Objective verification checks are NOT implemented in Plan 03-01.")
-    print(
-        "Input artifact was validated. Verification engine execution begins in Phase 4."
-    )
-    print("No composite security scores will be generated.")
-    return 0
+
+    print()
+    print(format_report_terminal(report))
+
+    if output_path is not None:
+        exported = export_report_json(report, output_path)
+        print(f"\nAudit report exported to: '{exported}'")
+
+    failed_count = report.summary.get("failed", 0)
+    return 1 if failed_count > 0 else 0
 
 
 def main(args: list[str] | None = None) -> int:
@@ -355,11 +435,15 @@ def main(args: list[str] | None = None) -> int:
             output_dir=parsed_args.output_dir,
             platform=parsed_args.platform,
             overwrite=parsed_args.overwrite,
+            allow_production_signing=parsed_args.allow_production_signing,
+            mapping_out=parsed_args.mapping_out,
         )
     elif parsed_args.command == "verify":
         return cmd_verify(
             artifact_path=parsed_args.artifact,
             config_path=parsed_args.config,
+            mapping_file=parsed_args.mapping_file,
+            output_path=parsed_args.output,
         )
 
     return 0
