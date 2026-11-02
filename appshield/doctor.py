@@ -210,7 +210,7 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
                 is_available=True,
                 version=android_home,
                 target_version="Android SDK Directory",
-                required=False,
+                required=True,
                 remediation_hint="",
                 path=android_home,
                 validated_live=False,
@@ -223,7 +223,7 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
                 is_available=False,
                 version=None,
                 target_version="Android SDK Directory",
-                required=False,
+                required=True,
                 remediation_hint="Set ANDROID_HOME environment variable pointing to your Android SDK installation directory.",
                 validated_live=False,
             )
@@ -244,7 +244,7 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
             is_available=platform_34_installed,
             version="Installed (android-34)" if platform_34_installed else None,
             target_version="platforms;android-34 (API Level 34)",
-            required=False,
+            required=True,
             remediation_hint="Install Android SDK Platform 34 via SDK Manager: sdkmanager 'platforms;android-34'"
             if not platform_34_installed
             else "",
@@ -268,7 +268,7 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
             is_available=bt_34_installed,
             version="Installed (34.0.0)" if bt_34_installed else None,
             target_version="build-tools;34.0.0",
-            required=False,
+            required=True,
             remediation_hint="Install Android SDK Build-Tools 34.0.0 via SDK Manager: sdkmanager 'build-tools;34.0.0'"
             if not bt_34_installed
             else "",
@@ -342,7 +342,7 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
             if zipalign_path
             else None,
             target_version="Build-Tools 34.0.0 zipalign",
-            required=False,
+            required=True,
             remediation_hint="Required for aligning APK packages. Found in $ANDROID_HOME/build-tools/34.0.0/zipalign",
             path=zipalign_path,
             validated_live=False,
@@ -366,7 +366,7 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
             if apksigner_path
             else None,
             target_version="Build-Tools 34.0.0 apksigner",
-            required=False,
+            required=True,
             remediation_hint="Required for signing and signature verification. Found in $ANDROID_HOME/build-tools/34.0.0/apksigner",
             path=apksigner_path,
             validated_live=False,

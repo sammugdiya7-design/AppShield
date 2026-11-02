@@ -154,12 +154,19 @@ def test_run_doctor_checks_all_tools_missing():
     assert report_map["Gradle Build Tool"].required is True
 
     assert report_map["Android SDK (ANDROID_HOME)"].is_available is False
-    assert report_map["Android SDK (ANDROID_HOME)"].required is False
+    assert report_map["Android SDK (ANDROID_HOME)"].required is True
 
     assert report_map["Android SDK Platform 34"].is_available is False
+    assert report_map["Android SDK Platform 34"].required is True
+
     assert report_map["Android SDK Build-Tools 34.0.0"].is_available is False
+    assert report_map["Android SDK Build-Tools 34.0.0"].required is True
+
     assert report_map["zipalign"].is_available is False
+    assert report_map["zipalign"].required is True
+
     assert report_map["apksigner"].is_available is False
+    assert report_map["apksigner"].required is True
 
 
 def test_run_doctor_checks_java_8_incompatible(tmp_path: Path):
