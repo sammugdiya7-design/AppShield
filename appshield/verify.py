@@ -878,7 +878,15 @@ class VerificationEngine:
         }
 
         # Determine if verified protected:
-        # Requires: real build, no failures, CHK-BLD-01 PASS, CHK-APK-01 PASS, CHK-SYM-01 PASS
+        # Requires:
+        # 1. Real toolchain build (is_real_build is True)
+        # 2. No check failures across all checks (summary_counts['failed'] == 0)
+        # 3. No inconclusive checks (summary_counts['inconclusive'] == 0)
+        # 4. CHK-BLD-01 PASS (build succeeded with matching evidence)
+        # 5. CHK-APK-01 PASS (valid APK archive and parseable DEX)
+        # 6. CHK-SYM-01 PASS (dual-evidence symbol obfuscation verified)
+        # 7. CHK-ALN-01 PASS (zip alignment verified; unsupported/skipped alignment is not sufficient)
+        # 8. CHK-SIG-01 PASS if signing is configured/enabled (signature verified)
         bld_pass = any(
             c.check_id == "CHK-BLD-01" and c.status == "PASS" for c in checks
         )
@@ -888,10 +896,29 @@ class VerificationEngine:
         sym_pass = any(
             c.check_id == "CHK-SYM-01" and c.status == "PASS" for c in checks
         )
+        aln_pass = any(
+            c.check_id == "CHK-ALN-01" and c.status == "PASS" for c in checks
+        )
+
+        sig_required = signing_config is not None and signing_config.enabled
+        sig_pass = (
+            any(c.check_id == "CHK-SIG-01" and c.status == "PASS" for c in checks)
+            if sig_required
+            else True
+        )
+
         no_failures = summary_counts["failed"] == 0
+        no_inconclusive = summary_counts["inconclusive"] == 0
 
         is_verified_protected = bool(
-            is_real_build and no_failures and bld_pass and apk_pass and sym_pass
+            is_real_build
+            and no_failures
+            and no_inconclusive
+            and bld_pass
+            and apk_pass
+            and sym_pass
+            and aln_pass
+            and sig_pass
         )
 
         # Signature type label

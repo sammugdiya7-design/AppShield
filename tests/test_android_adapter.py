@@ -661,7 +661,11 @@ com.example.sample.MainActivity -> com.example.sample.MainActivity:
 
     mock_runner.run_task.side_effect = fake_run
 
-    with patch("appshield.adapters.android.align_and_sign_apk") as mock_align_sign:
+    with (
+        patch("appshield.adapters.android.align_and_sign_apk") as mock_align_sign,
+        patch("appshield.verify.find_zipalign", return_value=Path("/bin/zipalign")),
+        patch("appshield.verify.verify_zipalign", return_value=True),
+    ):
 
         def fake_signing(
             unsigned_apk: Path, output_dir: Path, **kwargs: object

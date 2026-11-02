@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import zipfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,6 +29,7 @@ from appshield.config import (
     InputConfig,
     OutputConfig,
     OverwriteError,
+    SigningConfig,
 )
 from appshield.dex import create_synthetic_dex
 from appshield.doctor import ToolReport
@@ -152,7 +154,11 @@ class TestProtectionPipelineLifecycle:
 
         adapter = AndroidPipelineAdapter()
 
-        with patch("appshield.adapters.android.align_and_sign_apk") as mock_sign:
+        with (
+            patch("appshield.adapters.android.align_and_sign_apk") as mock_sign,
+            patch("appshield.verify.find_zipalign", return_value=Path("/bin/zipalign")),
+            patch("appshield.verify.verify_zipalign", return_value=True),
+        ):
 
             def fake_signing(
                 unsigned_apk: Path, output_dir: Path, **kwargs: object
@@ -221,7 +227,11 @@ class TestProtectionPipelineLifecycle:
 
         adapter = AndroidPipelineAdapter()
 
-        with patch("appshield.adapters.android.align_and_sign_apk") as mock_sign:
+        with (
+            patch("appshield.adapters.android.align_and_sign_apk") as mock_sign,
+            patch("appshield.verify.find_zipalign", return_value=Path("/bin/zipalign")),
+            patch("appshield.verify.verify_zipalign", return_value=True),
+        ):
 
             def fake_signing(
                 unsigned_apk: Path, output_dir: Path, **kwargs: object
@@ -343,7 +353,11 @@ class TestSimulationBarrier:
 
         adapter = AndroidPipelineAdapter()
 
-        with patch("appshield.adapters.android.align_and_sign_apk") as mock_sign:
+        with (
+            patch("appshield.adapters.android.align_and_sign_apk") as mock_sign,
+            patch("appshield.verify.find_zipalign", return_value=Path("/bin/zipalign")),
+            patch("appshield.verify.verify_zipalign", return_value=True),
+        ):
 
             def fake_signing(
                 unsigned_apk: Path, output_dir: Path, **kwargs: object
@@ -408,7 +422,11 @@ com.appshield.sample.MainActivity -> com.appshield.sample.MainActivity:
 
         adapter = AndroidPipelineAdapter()
 
-        with patch("appshield.adapters.android.align_and_sign_apk") as mock_sign:
+        with (
+            patch("appshield.adapters.android.align_and_sign_apk") as mock_sign,
+            patch("appshield.verify.find_zipalign", return_value=Path("/bin/zipalign")),
+            patch("appshield.verify.verify_zipalign", return_value=True),
+        ):
 
             def fake_signing(
                 unsigned_apk: Path, output_dir: Path, **kwargs: object
@@ -478,6 +496,209 @@ com.appshield.sample.MainActivity -> com.appshield.sample.MainActivity:
                 create_valid_test_apk(
                     final_apk, classes=["com.appshield.sample.MainActivity"]
                 )
+                return SigningResult(
+                    success=True,
+                    signature_type="unsigned",
+                    aligned_apk_path=final_apk,
+                    final_apk_path=final_apk,
+                    is_aligned=True,
+                )
+
+            mock_sign.side_effect = fake_signing
+
+            result = adapter.stage_and_protect(
+                config=config,
+                runner=mock_runner,
+                expected_fixture_classes=[
+                    "com.appshield.sample.IdentifiableSecretService",
+                    "com.appshield.sample.PaymentSecurityValidator",
+                ],
+                expected_entry_points=["com.appshield.sample.MainActivity"],
+            )
+
+        assert result.success is False
+        assert result.is_verified_protected is False
+        assert result.protected_artifact_path is None
+
+    def test_unsupported_zipalign_blocks_verified_protected(self, tmp_path: Path):
+        """If zipalign is missing, CHK-ALN-01 is SKIPPED and release export is blocked."""
+        dist_dir = tmp_path / "dist"
+        config = AppShieldConfig(
+            version="1.0",
+            project_name="sample_android_gradle_project",
+            platform="android",
+            input=InputConfig(project_dir=FIXTURE_DIR),
+            output=OutputConfig(dir=dist_dir),
+        )
+
+        mock_runner = MagicMock()
+        setup_mock_gradle_success(mock_runner)
+
+        adapter = AndroidPipelineAdapter()
+
+        with (
+            patch("appshield.adapters.android.align_and_sign_apk") as mock_sign,
+            patch("appshield.verify.find_zipalign", return_value=None),
+        ):
+
+            def fake_signing(
+                unsigned_apk: Path, output_dir: Path, **kwargs: object
+            ) -> SigningResult:
+                final_apk = output_dir / "app-release-unsigned.apk"
+                create_valid_test_apk(final_apk)
+                return SigningResult(
+                    success=True,
+                    signature_type="unsigned",
+                    aligned_apk_path=final_apk,
+                    final_apk_path=final_apk,
+                    is_aligned=False,
+                )
+
+            mock_sign.side_effect = fake_signing
+
+            result = adapter.stage_and_protect(
+                config=config,
+                runner=mock_runner,
+                expected_fixture_classes=[
+                    "com.appshield.sample.IdentifiableSecretService",
+                    "com.appshield.sample.PaymentSecurityValidator",
+                ],
+                expected_entry_points=["com.appshield.sample.MainActivity"],
+            )
+
+        assert result.success is False
+        assert result.is_verified_protected is False
+        assert result.protected_artifact_path is None
+        assert not (
+            dist_dir / "sample_android_gradle_project-release-protected.apk"
+        ).exists()
+
+    def test_unsupported_signature_verification_blocks_verified_protected(
+        self, tmp_path: Path
+    ):
+        """If signing is enabled but apksigner is missing, CHK-SIG-01 is SKIPPED and export is blocked."""
+        dist_dir = tmp_path / "dist"
+        from appshield.config import AndroidConfig
+
+        config = AppShieldConfig(
+            version="1.0",
+            project_name="sample_android_gradle_project",
+            platform="android",
+            input=InputConfig(project_dir=FIXTURE_DIR),
+            output=OutputConfig(dir=dist_dir),
+            android=AndroidConfig(signing=SigningConfig(enabled=True)),
+        )
+
+        mock_runner = MagicMock()
+        setup_mock_gradle_success(mock_runner)
+
+        adapter = AndroidPipelineAdapter()
+
+        with (
+            patch("appshield.adapters.android.align_and_sign_apk") as mock_sign,
+            patch("appshield.verify.find_zipalign", return_value=Path("/bin/zipalign")),
+            patch("appshield.verify.verify_zipalign", return_value=True),
+            patch("appshield.verify.find_apksigner", return_value=None),
+        ):
+
+            def fake_signing(
+                unsigned_apk: Path, output_dir: Path, **kwargs: object
+            ) -> SigningResult:
+                final_apk = output_dir / "app-release-signed.apk"
+                create_valid_test_apk(final_apk)
+                return SigningResult(
+                    success=True,
+                    signature_type="test_signed",
+                    aligned_apk_path=final_apk,
+                    final_apk_path=final_apk,
+                    is_aligned=True,
+                )
+
+            mock_sign.side_effect = fake_signing
+
+            result = adapter.stage_and_protect(
+                config=config,
+                runner=mock_runner,
+                expected_fixture_classes=[
+                    "com.appshield.sample.IdentifiableSecretService",
+                    "com.appshield.sample.PaymentSecurityValidator",
+                ],
+                expected_entry_points=["com.appshield.sample.MainActivity"],
+            )
+
+        assert result.success is False
+        assert result.is_verified_protected is False
+        assert result.protected_artifact_path is None
+        assert not (
+            dist_dir / "sample_android_gradle_project-release-protected.apk"
+        ).exists()
+
+    def test_inconclusive_check_blocks_verified_protected(self, tmp_path: Path):
+        """If any check produces INCONCLUSIVE status, is_verified_protected must be False."""
+        dist_dir = tmp_path / "dist"
+        config = AppShieldConfig(
+            version="1.0",
+            project_name="sample_android_gradle_project",
+            platform="android",
+            input=InputConfig(project_dir=FIXTURE_DIR),
+            output=OutputConfig(dir=dist_dir),
+        )
+
+        mock_runner = MagicMock()
+        setup_mock_gradle_success(mock_runner)
+
+        adapter = AndroidPipelineAdapter()
+
+        from appshield.verify import (
+            ObjectiveCheckResult,
+            VerificationEngine,
+            VerificationReport,
+        )
+
+        real_run_all = VerificationEngine.run_all_checks
+
+        def fake_run_all(*args: Any, **kwargs: Any) -> VerificationReport:
+            dummy_engine = VerificationEngine()
+            report = real_run_all(dummy_engine, *args, **kwargs)  # type: ignore[arg-type]
+            inconclusive_check = ObjectiveCheckResult(
+                check_id="CHK-HEUR-01",
+                name="Heuristic Check",
+                category="heuristics",
+                outcome="HEURISTIC",
+                status="INCONCLUSIVE",
+                what_it_proves="Nothing",
+                what_it_does_not_prove="Everything",
+                observed_metric="Inconclusive",
+            )
+            return VerificationReport(
+                audit_version=report.audit_version,
+                project_name=report.project_name,
+                generated_at=report.generated_at,
+                artifact=report.artifact,
+                summary={
+                    **report.summary,
+                    "inconclusive": report.summary.get("inconclusive", 0) + 1,
+                },
+                objective_checks=report.objective_checks + [inconclusive_check],
+                is_verified_protected=False,
+                disclaimer=report.disclaimer,
+            )
+
+        with (
+            patch("appshield.adapters.android.align_and_sign_apk") as mock_sign,
+            patch("appshield.verify.find_zipalign", return_value=Path("/bin/zipalign")),
+            patch("appshield.verify.verify_zipalign", return_value=True),
+            patch(
+                "appshield.adapters.android.VerificationEngine.run_all_checks",
+                side_effect=fake_run_all,
+            ),
+        ):
+
+            def fake_signing(
+                unsigned_apk: Path, output_dir: Path, **kwargs: object
+            ) -> SigningResult:
+                final_apk = output_dir / "app-release-unsigned-aligned.apk"
+                create_valid_test_apk(final_apk)
                 return SigningResult(
                     success=True,
                     signature_type="unsigned",
