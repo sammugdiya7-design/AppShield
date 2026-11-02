@@ -412,6 +412,17 @@ def cmd_verify(
         print(f"\nAudit report exported to: '{exported}'")
 
     failed_count = report.summary.get("failed", 0)
+    if not report.is_verified_protected:
+        if failed_count == 0:
+            print(
+                "\nNotice: Artifact inspection succeeded (0 check failures), but artifact is NOT "
+                "designated as a verified protected release (requires attached toolchain build session)."
+            )
+        else:
+            print(f"\nVerification FAILED: {failed_count} objective check(s) failed.")
+    else:
+        print("\nVerified Protected Release: YES")
+
     return 1 if failed_count > 0 else 0
 
 
