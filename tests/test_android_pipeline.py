@@ -867,9 +867,9 @@ class TestCliEndToEndFlow:
 
         target_apk = dist_dir / "sample_android_gradle_project-release-protected.apk"
         mapping_file = tmp_path / "retained_mapping.txt"
-        mapping_file.write_text(SAMPLE_MAPPING_CONTENT, encoding="utf-8")
 
         def fake_stage(*args: object, **kwargs: object) -> ProtectionResult:
+            mapping_file.write_text(SAMPLE_MAPPING_CONTENT, encoding="utf-8")
             create_valid_test_apk(target_apk)
             return ProtectionResult(
                 success=True,
@@ -917,3 +917,107 @@ class TestCliEndToEndFlow:
         assert "AppShield Empirical Verification Report" in captured_verify.out
         assert "CHK-SYM-01" in captured_verify.out
         assert audit_out.is_file()
+
+    def test_cli_protect_refuses_mapping_out_overwrite(self, tmp_path: Path, capsys):
+        """CLI protect refuses to silently overwrite an existing mapping file."""
+        dist_dir = tmp_path / "dist"
+        cfg_file = tmp_path / "appshield.json"
+        existing_mapping = tmp_path / "existing_mapping.txt"
+        existing_mapping.write_text("existing content", encoding="utf-8")
+
+        cfg_file.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "project_name": "sample_android_gradle_project",
+                    "platform": "android",
+                    "input": {"project_dir": str(FIXTURE_DIR)},
+                    "output": {"dir": str(dist_dir), "overwrite_existing": False},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        code = main(
+            [
+                "protect",
+                "-c",
+                str(cfg_file),
+                "--mapping-out",
+                str(existing_mapping),
+            ]
+        )
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "Overwrite Protection Error" in captured.err
+        assert "Destination mapping file already exists" in captured.err
+        assert existing_mapping.read_text(encoding="utf-8") == "existing content"
+
+    def test_cli_protect_allows_mapping_out_overwrite_with_flag(
+        self, tmp_path: Path, capsys
+    ):
+        """CLI protect allows overwriting existing mapping file when --overwrite is passed."""
+        dist_dir = tmp_path / "dist"
+        cfg_file = tmp_path / "appshield.json"
+        existing_mapping = tmp_path / "existing_mapping.txt"
+        existing_mapping.write_text("existing content", encoding="utf-8")
+
+        cfg_file.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "project_name": "sample_android_gradle_project",
+                    "platform": "android",
+                    "input": {"project_dir": str(FIXTURE_DIR)},
+                    "output": {"dir": str(dist_dir), "overwrite_existing": False},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        mock_reports = [
+            ToolReport("Java Runtime (java)", True, "17.0.21", True, ""),
+            ToolReport("Android SDK Platform 34", True, "34", True, ""),
+            ToolReport("Android SDK Build-Tools 34.0.0", True, "34.0.0", True, ""),
+            ToolReport("Gradle Build Tool", True, "8.2", True, ""),
+        ]
+
+        def fake_stage(
+            config: Any,
+            mapping_out: Path | None = None,
+            **kwargs: Any,
+        ) -> ProtectionResult:
+            if mapping_out:
+                mapping_out.write_text(SAMPLE_MAPPING_CONTENT, encoding="utf-8")
+            target_apk = (
+                config.output.dir
+                / f"{config.project_name}-{config.android.build_variant}-protected.apk"
+            )
+            create_valid_test_apk(target_apk)
+            return ProtectionResult(
+                success=True,
+                protected_artifact_path=target_apk,
+                logs=["Stage and protect succeeded"],
+                verification_report=None,
+            )
+
+        with (
+            patch("appshield.cli.run_doctor_checks", return_value=mock_reports),
+            patch(
+                "appshield.cli.AndroidPipelineAdapter.stage_and_protect",
+                side_effect=fake_stage,
+            ),
+        ):
+            code = main(
+                [
+                    "protect",
+                    "-c",
+                    str(cfg_file),
+                    "--mapping-out",
+                    str(existing_mapping),
+                    "--overwrite",
+                ]
+            )
+
+        assert code == 0
+        assert existing_mapping.read_text(encoding="utf-8") == SAMPLE_MAPPING_CONTENT

@@ -298,6 +298,15 @@ def cmd_protect(
             allow_overwrite=config.output.overwrite_existing,
         )
         print(f"  - Target File  : {target_output}")
+        if mapping_out is not None:
+            mapping_out_resolved = mapping_out.resolve()
+            if mapping_out_resolved.exists() and not config.output.overwrite_existing:
+                raise OverwriteError(
+                    f"Destination mapping file already exists: '{mapping_out_resolved}'. "
+                    "AppShield will not overwrite existing mapping files without authorization. "
+                    "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
+                )
+            print(f"  - Mapping Out  : {mapping_out_resolved}")
     except OverwriteError as e:
         print(f"Overwrite Protection Error: {e}", file=sys.stderr)
         return 1

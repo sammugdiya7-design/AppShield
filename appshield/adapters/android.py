@@ -16,7 +16,11 @@ from appshield.adapters.base import (
     ProtectionResult,
     RuleStagingError,
 )
-from appshield.config import AppShieldConfig, validate_output_destination
+from appshield.config import (
+    AppShieldConfig,
+    OverwriteError,
+    validate_output_destination,
+)
 from appshield.doctor import run_doctor_checks
 from appshield.gradle import (
     GradleRunner,
@@ -605,6 +609,14 @@ class AndroidPipelineAdapter(PlatformAdapter):
             artifact_name=target_filename,
             allow_overwrite=config.output.overwrite_existing,
         )
+        if mapping_out is not None:
+            mapping_out_path = mapping_out.resolve()
+            if mapping_out_path.exists() and not config.output.overwrite_existing:
+                raise OverwriteError(
+                    f"Destination mapping file already exists: '{mapping_out_path}'. "
+                    "AppShield will not overwrite existing mapping files without authorization. "
+                    "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
+                )
 
         # 4. Strict simulation barrier
         if (
@@ -700,6 +712,15 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 logs.append(f"Located R8 mapping file: '{mapping_file.name}'")
                 if mapping_out is not None:
                     mapping_out_path = mapping_out.resolve()
+                    if (
+                        mapping_out_path.exists()
+                        and not config.output.overwrite_existing
+                    ):
+                        raise OverwriteError(
+                            f"Destination mapping file already exists: '{mapping_out_path}'. "
+                            "AppShield will not overwrite existing mapping files without authorization. "
+                            "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
+                        )
                     mapping_out_path.parent.mkdir(parents=True, exist_ok=True)
                     import shutil
 
