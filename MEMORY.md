@@ -194,7 +194,7 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Dependency Downloads: Strict separation between (1) Gradle distribution archive, (2) Android SDK packages via `sdkmanager`, (3) Maven build plugin resolution (AGP 8.2.2 + R8 8.2.33 from Google Maven/Maven Central), and (4) Offline cached execution. Silent downloads are strictly forbidden; dependencies must be resolved into user cache before offline builds.
 - **Accurate Toolchain Status Wording**: Toolchain tables and documentation must distinguish: (1) Selected Target Versions based on AGP compatibility docs (JDK 17, Gradle 8.2, AGP 8.2.2, SDK 34, Build-Tools 34.0.0); (2) Tools detected on the current host; and (3) Versions validated through a successful live build. Never claim end-to-end testing or toolchain validation until a real build succeeds.
 - **Dual-Evidence Verification**: `CHK-SYM-01` inspects both `mapping.txt` and actual output `classes.dex` class descriptors to verify that fixture symbols were actually removed from DEX bytecode.
-- **No Overwriting Artifacts**: Existing destination files are never overwritten without explicit `--overwrite` or `overwrite_existing: true`.
+- **No Overwriting Artifacts**: Existing destination files (including protected APKs and private mapping files designated via `--mapping-out`) are never overwritten without explicit `--overwrite` or `overwrite_existing: true`. Overwrite protection raises `OverwriteError` early during preflight checks and within the protection pipeline.
 - **Zero Logged Credentials**: Passwords referenced exclusively via environment variable names; never passed in CLI flags, printed in reports, or logged.
 
 ### Isolation Guarantees vs. OS Sandboxing & Build Execution Risks
