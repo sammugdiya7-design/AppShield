@@ -152,3 +152,4 @@ Write-Host "[SUCCESS] User environment successfully restored to original pre-App
 Write-Host "Current process session has been refreshed." -ForegroundColor Green
 Write-Host "Backup file retained for reference: '$BackupFile'" -ForegroundColor DarkGray
 Write-Host ""
+
