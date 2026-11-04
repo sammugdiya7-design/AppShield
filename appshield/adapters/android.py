@@ -617,6 +617,14 @@ class AndroidPipelineAdapter(PlatformAdapter):
                     "AppShield will not overwrite existing mapping files without authorization. "
                     "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
                 )
+        for report_name in ("audit_report.json", "audit_report.md"):
+            rep_path = (config.output.dir / report_name).resolve()
+            if rep_path.exists() and not config.output.overwrite_existing:
+                raise OverwriteError(
+                    f"Destination report file already exists: '{rep_path}'. "
+                    "AppShield will not overwrite existing report files without authorization. "
+                    "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
+                )
 
         # 4. Strict simulation barrier
         if (
@@ -775,7 +783,11 @@ class AndroidPipelineAdapter(PlatformAdapter):
             # 12. Generate and export audit reports
             audit_report_dest = config.output.dir / "audit_report.json"
             audit_report_dest.parent.mkdir(parents=True, exist_ok=True)
-            export_report_json(verification_report, audit_report_dest)
+            export_report_json(
+                verification_report,
+                audit_report_dest,
+                allow_overwrite=config.output.overwrite_existing,
+            )
             logs.append(f"Generated verification audit report: '{audit_report_dest}'")
 
             audit_md_dest = config.output.dir / "audit_report.md"

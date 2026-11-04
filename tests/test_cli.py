@@ -416,6 +416,49 @@ def test_cli_verify_missing_mapping_file(tmp_path: Path, capsys):
     assert "Mapping file not found" in captured.err
 
 
+def test_cli_verify_refuses_output_overwrite(tmp_path: Path, capsys):
+    """'appshield verify' exits 1 if destination output report already exists without --overwrite."""
+    import zipfile
+
+    from appshield.dex import create_synthetic_dex
+
+    apk_file = tmp_path / "app.apk"
+    with zipfile.ZipFile(apk_file, "w") as zf:
+        zf.writestr("AndroidManifest.xml", b"<dummy/>")
+        zf.writestr("classes.dex", create_synthetic_dex(["com.example.MainActivity"]))
+
+    existing_out = tmp_path / "standalone_audit.json"
+    existing_out.write_text("prior report content", encoding="utf-8")
+
+    code = main(["verify", str(apk_file), "-o", str(existing_out)])
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "Overwrite Protection Error" in captured.err
+    assert "Destination audit report already exists" in captured.err
+    assert existing_out.read_text(encoding="utf-8") == "prior report content"
+
+
+def test_cli_verify_allows_output_overwrite_with_flag(tmp_path: Path, capsys):
+    """'appshield verify' overwrites destination output report when --overwrite is passed."""
+    import zipfile
+
+    from appshield.dex import create_synthetic_dex
+
+    apk_file = tmp_path / "app.apk"
+    with zipfile.ZipFile(apk_file, "w") as zf:
+        zf.writestr("AndroidManifest.xml", b"<dummy/>")
+        zf.writestr("classes.dex", create_synthetic_dex(["com.example.MainActivity"]))
+
+    existing_out = tmp_path / "standalone_audit.json"
+    existing_out.write_text("prior report content", encoding="utf-8")
+
+    code = main(["verify", str(apk_file), "-o", str(existing_out), "--overwrite"])
+    assert code == 0
+    captured = capsys.readouterr()
+    assert f"Audit report exported to: '{existing_out.resolve()}'" in captured.out
+    assert existing_out.read_text(encoding="utf-8") != "prior report content"
+
+
 def test_cli_protect_cli_overrides(tmp_path: Path, capsys):
     """'appshield protect' applies CLI overrides for project-dir, output-dir, and platform."""
     base_proj = tmp_path / "base_proj"

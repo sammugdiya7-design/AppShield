@@ -365,3 +365,57 @@ def test_distinguish_actual_vs_simulated_build(tmp_path: Path):
         ) as sb:
             assert sb.staging_dir.exists()
             # In Phase 4, actual gradlew assembleRelease will be invoked by AndroidGradleAdapter
+
+
+def test_setup_runbook_syntax_and_integrity() -> None:
+    """Validate that scripts/setup/RUNBOOK.md has no malformed environment variables and parses cleanly."""
+    import re
+    import shutil
+    import subprocess
+
+    runbook_path = Path(__file__).parent.parent / "scripts" / "setup" / "RUNBOOK.md"
+    assert runbook_path.is_file(), f"RUNBOOK.md not found at '{runbook_path}'"
+
+    content = runbook_path.read_text(encoding="utf-8")
+
+    # Assert no malformed $env\: occurrences
+    assert "$env\\:" not in content, "Found malformed '$env\\:' in RUNBOOK.md"
+
+    # Extract all powershell code blocks
+    pattern = re.compile(r"```powershell\r?\n(.*?)\r?\n```", re.DOTALL)
+    blocks = pattern.findall(content)
+    assert len(blocks) >= 10, "Expected at least 10 code blocks in RUNBOOK.md"
+
+    commands: list[str] = []
+    for b in blocks:
+        for line in b.splitlines():
+            line_str = line.strip()
+            if line_str and not line_str.startswith("#"):
+                assert not line_str.endswith("`"), (
+                    f"Command ends with backtick continuation: {line_str}"
+                )
+                assert "\\--" not in line_str, (
+                    f"Command contains escaped flag '\\--': {line_str}"
+                )
+                commands.append(line_str)
+
+    assert len(commands) == 14, (
+        f"Expected 14 executable commands, found {len(commands)}"
+    )
+
+    # If powershell is available on host, validate through AST parser
+    pwsh_exe = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if pwsh_exe:
+        script_snippet = "\n".join(commands)
+        ps_cmd = (
+            f"$errors = $null; "
+            f"[System.Management.Automation.Language.Parser]::ParseInput(@'\n{script_snippet}\n'@, [ref]$null, [ref]$errors); "
+            f"if ($errors.Count -gt 0) {{ $errors | ForEach-Object {{ Write-Error $_ }}; exit 1 }} else {{ exit 0 }}"
+        )
+        res = subprocess.run(
+            [pwsh_exe, "-NoProfile", "-Command", ps_cmd],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert res.returncode == 0, f"PowerShell AST parse failed: {res.stderr}"

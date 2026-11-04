@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from appshield.config import SigningConfig
+from appshield.config import OverwriteError, SigningConfig
 from appshield.dex import create_synthetic_dex, inspect_apk_dex
 from appshield.gradle import GradleBuildResult, build_safe_env
 from appshield.mapping import parse_r8_mapping
@@ -629,6 +629,26 @@ class TestReportGeneration:
         md_text = format_report_markdown(report)
         assert "# AppShield Verification Report: my_test_app" in md_text
         assert "| `CHK-SYM-01` |" in md_text
+
+    def test_export_report_json_overwrite_protection(self, tmp_path: Path) -> None:
+        """export_report_json refuses to overwrite existing file unless allow_overwrite=True."""
+        engine = VerificationEngine(project_name="overwrite_test")
+        report = engine.run_all_checks(
+            apk_path=tmp_path / "dummy.apk",
+            build_result=None,
+            is_real_build=False,
+        )
+        out_json = tmp_path / "existing_report.json"
+        out_json.write_text("prior content", encoding="utf-8")
+
+        with pytest.raises(OverwriteError) as exc_info:
+            export_report_json(report, out_json, allow_overwrite=False)
+        assert "Destination audit report already exists" in str(exc_info.value)
+        assert out_json.read_text(encoding="utf-8") == "prior content"
+
+        # Allowed overwrite
+        export_report_json(report, out_json, allow_overwrite=True)
+        assert "prior content" not in out_json.read_text(encoding="utf-8")
 
     def test_build_artifact_association_and_inconsistency_rejection(
         self, tmp_path: Path

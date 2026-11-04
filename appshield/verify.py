@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from appshield.config import SigningConfig
+from appshield.config import OverwriteError, SigningConfig
 from appshield.dex import ApkDexSummary, DexError, class_to_descriptor, inspect_apk_dex
 from appshield.gradle import GradleBuildResult
 from appshield.mapping import MappingParseError, R8MappingSummary, parse_r8_mapping
@@ -959,9 +959,17 @@ class VerificationEngine:
         )
 
 
-def export_report_json(report: VerificationReport, output_path: Path) -> Path:
+def export_report_json(
+    report: VerificationReport, output_path: Path, allow_overwrite: bool = False
+) -> Path:
     """Write verification report to disk in JSON format."""
     resolved = output_path.resolve()
+    if resolved.exists() and not allow_overwrite:
+        raise OverwriteError(
+            f"Destination audit report already exists: '{resolved}'. "
+            "AppShield will not overwrite existing reports without authorization. "
+            "Specify '--overwrite' to allow replacing it."
+        )
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(report.to_json(indent=2), encoding="utf-8")
     return resolved

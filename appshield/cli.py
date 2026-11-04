@@ -139,6 +139,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to export audit report JSON.",
     )
+    verify_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Authorize overwriting existing destination files.",
+    )
 
     return parser
 
@@ -307,6 +313,14 @@ def cmd_protect(
                     "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
                 )
             print(f"  - Mapping Out  : {mapping_out_resolved}")
+        for report_name in ("audit_report.json", "audit_report.md"):
+            rep_path = (config.output.dir / report_name).resolve()
+            if rep_path.exists() and not config.output.overwrite_existing:
+                raise OverwriteError(
+                    f"Destination report file already exists: '{rep_path}'. "
+                    "AppShield will not overwrite existing report files without authorization. "
+                    "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
+                )
     except OverwriteError as e:
         print(f"Overwrite Protection Error: {e}", file=sys.stderr)
         return 1
@@ -356,6 +370,7 @@ def cmd_verify(
     config_path: Path | None = None,
     mapping_file: Path | None = None,
     output_path: Path | None = None,
+    overwrite: bool = False,
 ) -> int:
     """Handle `appshield verify` command."""
     print("AppShield Verify: Inspecting artifact and running objective checks...")
@@ -417,8 +432,14 @@ def cmd_verify(
     print(format_report_terminal(report))
 
     if output_path is not None:
-        exported = export_report_json(report, output_path)
-        print(f"\nAudit report exported to: '{exported}'")
+        try:
+            exported = export_report_json(
+                report, output_path, allow_overwrite=overwrite
+            )
+            print(f"\nAudit report exported to: '{exported}'")
+        except OverwriteError as e:
+            print(f"Overwrite Protection Error: {e}", file=sys.stderr)
+            return 1
 
     failed_count = report.summary.get("failed", 0)
     if not report.is_verified_protected:
@@ -464,6 +485,7 @@ def main(args: list[str] | None = None) -> int:
             config_path=parsed_args.config,
             mapping_file=parsed_args.mapping_file,
             output_path=parsed_args.output,
+            overwrite=parsed_args.overwrite,
         )
 
     return 0
