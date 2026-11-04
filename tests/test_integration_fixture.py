@@ -367,19 +367,32 @@ def test_distinguish_actual_vs_simulated_build(tmp_path: Path):
             # In Phase 4, actual gradlew assembleRelease will be invoked by AndroidGradleAdapter
 
 
+def check_runbook_content_integrity(content: str) -> None:
+    """Validate content has no malformed $env\\: or escaped flags."""
+    if "$env\\:" in content:
+        raise AssertionError("Found malformed '$env\\:' in runbook content")
+    if "\\--" in content:
+        raise AssertionError("Found malformed '\\--' in runbook content")
+
+
 def test_setup_runbook_syntax_and_integrity() -> None:
     """Validate that scripts/setup/RUNBOOK.md has no malformed environment variables and parses cleanly."""
     import re
     import shutil
     import subprocess
 
+    # Negative test: verify detector rejects deliberately malformed sample
+    malformed_sample = "$env\\:USERPROFILE\\.appshield\\mappings"
+    with pytest.raises(AssertionError, match=r"Found malformed '\$env\\:'"):
+        check_runbook_content_integrity(malformed_sample)
+
     runbook_path = Path(__file__).parent.parent / "scripts" / "setup" / "RUNBOOK.md"
     assert runbook_path.is_file(), f"RUNBOOK.md not found at '{runbook_path}'"
 
     content = runbook_path.read_text(encoding="utf-8")
 
-    # Assert no malformed $env\: occurrences
-    assert "$env\\:" not in content, "Found malformed '$env\\:' in RUNBOOK.md"
+    # Positive test: passes against the actual committed source
+    check_runbook_content_integrity(content)
 
     # Extract all powershell code blocks
     pattern = re.compile(r"```powershell\r?\n(.*?)\r?\n```", re.DOTALL)
@@ -403,14 +416,34 @@ def test_setup_runbook_syntax_and_integrity() -> None:
         f"Expected 14 executable commands, found {len(commands)}"
     )
 
-    # If powershell is available on host, validate through AST parser
+    # Verify specific required variable references
+    assert any("$env:LOCALAPPDATA" in cmd for cmd in commands)
+    assert any("$env:USERPROFILE" in cmd for cmd in commands)
+    assert "$env:JAVA_HOME" in content
+    assert "$env:Path" in content
+
+    # If powershell is available on host, validate through AST parser and semantic checks
     pwsh_exe = shutil.which("powershell.exe") or shutil.which("pwsh")
     if pwsh_exe:
         script_snippet = "\n".join(commands)
         ps_cmd = (
-            f"$errors = $null; "
-            f"[System.Management.Automation.Language.Parser]::ParseInput(@'\n{script_snippet}\n'@, [ref]$null, [ref]$errors); "
-            f"if ($errors.Count -gt 0) {{ $errors | ForEach-Object {{ Write-Error $_ }}; exit 1 }} else {{ exit 0 }}"
+            "$errors = $null;\n"
+            f"[System.Management.Automation.Language.Parser]::ParseInput(@'\n{script_snippet}\n'@, [ref]$null, [ref]$errors);\n"
+            "if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }\n"
+            "# Semantic expansion test\n"
+            "$tLocal = 'C:\\MockUser\\AppData\\Local'\n"
+            "$tProf  = 'C:\\MockUser'\n"
+            "$origL = $env:LOCALAPPDATA; $origP = $env:USERPROFILE\n"
+            "try {\n"
+            "    $env:LOCALAPPDATA = $tLocal; $env:USERPROFILE = $tProf\n"
+            '    $expSdk = "$env:LOCALAPPDATA\\Android\\Sdk"\n'
+            "    if ($expSdk -ne 'C:\\MockUser\\AppData\\Local\\Android\\Sdk') { exit 2 }\n"
+            "    $expMap = Join-Path $env:USERPROFILE '.appshield\\mappings\\sample_android_gradle_project'\n"
+            "    if ($expMap -ne 'C:\\MockUser\\.appshield\\mappings\\sample_android_gradle_project') { exit 3 }\n"
+            "} finally {\n"
+            "    $env:LOCALAPPDATA = $origL; $env:USERPROFILE = $origP\n"
+            "}\n"
+            "exit 0"
         )
         res = subprocess.run(
             [pwsh_exe, "-NoProfile", "-Command", ps_cmd],
@@ -418,4 +451,4 @@ def test_setup_runbook_syntax_and_integrity() -> None:
             capture_output=True,
             text=True,
         )
-        assert res.returncode == 0, f"PowerShell AST parse failed: {res.stderr}"
+        assert res.returncode == 0, f"PowerShell validation failed: {res.stderr}"
