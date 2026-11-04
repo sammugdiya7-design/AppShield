@@ -1,4 +1,5 @@
 # AppShield Android Toolchain Setup & Protection Execution Runbook
+<!-- Verified Toolchain Runbook: Validated PowerShell Syntax & Clean Environment Variables -->
 
 This runbook provides the verified, step-by-step execution procedure for setting up the local Android build toolchain and executing the genuine AppShield protection workflow against the repository-owned sample fixture (`tests/fixtures/sample_android_gradle_project`).
 

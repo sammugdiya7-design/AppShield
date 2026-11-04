@@ -369,10 +369,12 @@ def test_distinguish_actual_vs_simulated_build(tmp_path: Path):
 
 def check_runbook_content_integrity(content: str) -> None:
     """Validate content has no malformed $env\\: or escaped flags."""
-    if "$env\\:" in content:
-        raise AssertionError("Found malformed '$env\\:' in runbook content")
-    if "\\--" in content:
-        raise AssertionError("Found malformed '\\--' in runbook content")
+    malformed_env = "$env" + chr(92) + ":"
+    if malformed_env in content:
+        raise AssertionError(f"Found malformed '{malformed_env}' in runbook content")
+    malformed_dash = chr(92) + "--"
+    if malformed_dash in content:
+        raise AssertionError(f"Found malformed '{malformed_dash}' in runbook content")
 
 
 def test_setup_runbook_syntax_and_integrity() -> None:
@@ -381,10 +383,28 @@ def test_setup_runbook_syntax_and_integrity() -> None:
     import shutil
     import subprocess
 
-    # Negative test: verify detector rejects deliberately malformed sample
-    malformed_sample = "$env\\:USERPROFILE\\.appshield\\mappings"
-    with pytest.raises(AssertionError, match=r"Found malformed '\$env\\:'"):
-        check_runbook_content_integrity(malformed_sample)
+    # Negative tests: verify detector catches deliberate malformed samples
+    malformed_sample_sdk = (
+        '& "$env'
+        + chr(92)
+        + ':LOCALAPPDATA\\Android\\Sdk\\cmdline-tools\\latest\\bin\\sdkmanager.bat" --licenses'
+    )
+    with pytest.raises(AssertionError, match=r"Found malformed"):
+        check_runbook_content_integrity(malformed_sample_sdk)
+
+    malformed_sample_map = (
+        "$privateMappingDir = Join-Path $env"
+        + chr(92)
+        + ':USERPROFILE ".appshield\\mappings\\sample_android_gradle_project"'
+    )
+    with pytest.raises(AssertionError, match=r"Found malformed"):
+        check_runbook_content_integrity(malformed_sample_map)
+
+    malformed_sample_dash = (
+        "uv run appshield protect " + chr(92) + "--mapping-out private.txt"
+    )
+    with pytest.raises(AssertionError, match=r"Found malformed"):
+        check_runbook_content_integrity(malformed_sample_dash)
 
     runbook_path = Path(__file__).parent.parent / "scripts" / "setup" / "RUNBOOK.md"
     assert runbook_path.is_file(), f"RUNBOOK.md not found at '{runbook_path}'"
@@ -399,6 +419,9 @@ def test_setup_runbook_syntax_and_integrity() -> None:
     blocks = pattern.findall(content)
     assert len(blocks) >= 10, "Expected at least 10 code blocks in RUNBOOK.md"
 
+    malformed_env = "$env" + chr(92) + ":"
+    malformed_dash = chr(92) + "--"
+
     commands: list[str] = []
     for b in blocks:
         for line in b.splitlines():
@@ -407,8 +430,14 @@ def test_setup_runbook_syntax_and_integrity() -> None:
                 assert not line_str.endswith("`"), (
                     f"Command ends with backtick continuation: {line_str}"
                 )
-                assert "\\--" not in line_str, (
+                assert not line_str.endswith(chr(92)), (
+                    f"Command ends with backslash continuation: {line_str}"
+                )
+                assert malformed_dash not in line_str, (
                     f"Command contains escaped flag '\\--': {line_str}"
+                )
+                assert malformed_env not in line_str, (
+                    f"Command contains malformed variable: {line_str}"
                 )
                 commands.append(line_str)
 
@@ -416,11 +445,34 @@ def test_setup_runbook_syntax_and_integrity() -> None:
         f"Expected 14 executable commands, found {len(commands)}"
     )
 
-    # Verify specific required variable references
+    # Verify specific required variable references in extracted commands
     assert any("$env:LOCALAPPDATA" in cmd for cmd in commands)
     assert any("$env:USERPROFILE" in cmd for cmd in commands)
     assert "$env:JAVA_HOME" in content
     assert "$env:Path" in content
+
+    # Verify sdkmanager and private mapping commands specifically use correct syntax
+    sdkmanager_cmds = [cmd for cmd in commands if "sdkmanager.bat" in cmd]
+    assert len(sdkmanager_cmds) == 2, (
+        f"Expected 2 sdkmanager commands, found {len(sdkmanager_cmds)}"
+    )
+    for cmd in sdkmanager_cmds:
+        assert "$env:LOCALAPPDATA" in cmd, (
+            f"sdkmanager command must use $env:LOCALAPPDATA: {cmd}"
+        )
+        assert malformed_env not in cmd
+
+    mapping_cmds = [
+        cmd
+        for cmd in commands
+        if ".appshield" in cmd and "mappings" in cmd and "=" in cmd
+    ]
+    assert len(mapping_cmds) >= 1, "Expected private mapping assignment command"
+    for cmd in mapping_cmds:
+        assert "$env:USERPROFILE" in cmd, (
+            f"mapping command must use $env:USERPROFILE: {cmd}"
+        )
+        assert malformed_env not in cmd
 
     # If powershell is available on host, validate through AST parser and semantic checks
     pwsh_exe = shutil.which("powershell.exe") or shutil.which("pwsh")
