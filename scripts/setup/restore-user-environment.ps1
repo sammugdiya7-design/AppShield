@@ -119,30 +119,40 @@ Write-Host "`n=== AppShield Environment Restoration ===" -ForegroundColor Cyan
 Write-Host "Restoring environment from backup taken at: $backupTimestamp" -ForegroundColor Cyan
 
 # Restore JAVA_HOME
-[Environment]::SetEnvironmentVariable("JAVA_HOME", $origJavaHome, [EnvironmentVariableTarget]::User)
 if ($origJavaHome) {
-    Write-Host "  [OK] Restored User JAVA_HOME = '$origJavaHome'" -ForegroundColor Green
+    [Environment]::SetEnvironmentVariable("JAVA_HOME", $origJavaHome, [EnvironmentVariableTarget]::User)
     $env:JAVA_HOME = $origJavaHome
+    Write-Host "  [OK] Restored User JAVA_HOME = '$origJavaHome'" -ForegroundColor Green
 }
 else {
-    Write-Host "  [OK] Cleared User JAVA_HOME (was originally unset)" -ForegroundColor Green
+    # Remove from Windows User registry and current process
+    [Environment]::SetEnvironmentVariable("JAVA_HOME", $null, [EnvironmentVariableTarget]::User)
     Remove-Item Env:JAVA_HOME -ErrorAction SilentlyContinue
+    Write-Host "  [OK] Cleared User JAVA_HOME from registry (was originally unset)" -ForegroundColor Green
 }
 
 # Restore ANDROID_HOME
-[Environment]::SetEnvironmentVariable("ANDROID_HOME", $origAndroidHome, [EnvironmentVariableTarget]::User)
 if ($origAndroidHome) {
-    Write-Host "  [OK] Restored User ANDROID_HOME = '$origAndroidHome'" -ForegroundColor Green
+    [Environment]::SetEnvironmentVariable("ANDROID_HOME", $origAndroidHome, [EnvironmentVariableTarget]::User)
     $env:ANDROID_HOME = $origAndroidHome
+    Write-Host "  [OK] Restored User ANDROID_HOME = '$origAndroidHome'" -ForegroundColor Green
 }
 else {
-    Write-Host "  [OK] Cleared User ANDROID_HOME (was originally unset)" -ForegroundColor Green
+    # Remove from Windows User registry and current process
+    [Environment]::SetEnvironmentVariable("ANDROID_HOME", $null, [EnvironmentVariableTarget]::User)
     Remove-Item Env:ANDROID_HOME -ErrorAction SilentlyContinue
+    Write-Host "  [OK] Cleared User ANDROID_HOME from registry (was originally unset)" -ForegroundColor Green
 }
 
 # Restore User PATH
-[Environment]::SetEnvironmentVariable("Path", $origUserPath, [EnvironmentVariableTarget]::User)
-Write-Host "  [OK] Restored User PATH to exact original value ($((if ($origUserPath) { ($origUserPath -split ';').Count } else { 0 })) entries)." -ForegroundColor Green
+if ($origUserPath) {
+    [Environment]::SetEnvironmentVariable("Path", $origUserPath, [EnvironmentVariableTarget]::User)
+    Write-Host "  [OK] Restored User PATH to exact original value ($((($origUserPath -split ';').Count)) entries)." -ForegroundColor Green
+}
+else {
+    [Environment]::SetEnvironmentVariable("Path", $null, [EnvironmentVariableTarget]::User)
+    Write-Host "  [OK] Cleared User PATH from registry (was originally unset)." -ForegroundColor Green
+}
 
 # Refresh process PATH
 $env:Path = if ($origUserPath) { "$origUserPath;$currentMachinePath" } else { $currentMachinePath }

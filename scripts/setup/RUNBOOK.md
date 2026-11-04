@@ -33,15 +33,15 @@ Download the archives, verify SHA-256 hashes against official vendor checksums, 
 ```
 
 *Installed Targets:*
-- OpenJDK 17: `$env:USERPROFILE\.jdk\jdk-17.0.21+9`
-- Android Command-Line Tools: `$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\latest`
-- Gradle 8.2: `$env:USERPROFILE\.gradle\gradle-8.2`
+- OpenJDK 17: `%USERPROFILE%\.jdk\jdk-17.0.21+9`
+- Android Command-Line Tools: `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest`
+- Gradle 8.2: `%USERPROFILE%\.gradle\gradle-8.2`
 
 ---
 
 ## Phase 2: Configure User Environment Variables
 
-Backs up the existing environment state to `$env:USERPROFILE\.appshield\backup\` and idempotently configures `JAVA_HOME`, `ANDROID_HOME`, and `User` PATH additions.
+Backs up the existing environment state to `%USERPROFILE%\.appshield\backup\` and idempotently configures `JAVA_HOME`, `ANDROID_HOME`, and `User` PATH additions.
 
 ### Step 2.1: Preview Planned Environment Changes (Dry-Run)
 Inspect the proposed environment variable changes without modifying any registry settings:
@@ -56,11 +56,11 @@ Creates a timestamped JSON backup of original environment variables, writes `JAV
 ```
 
 *Applied User PATH Additions:*
-1. `$env:USERPROFILE\.jdk\jdk-17.0.21+9\bin`
-2. `$env:LOCALAPPDATA\Android\Sdk\cmdline-tools\latest\bin`
-3. `$env:LOCALAPPDATA\Android\Sdk\build-tools\34.0.0`
-4. `$env:USERPROFILE\.gradle\gradle-8.2\bin`
-5. `$env:LOCALAPPDATA\Android\Sdk\platform-tools`
+1. `%USERPROFILE%\.jdk\jdk-17.0.21+9\bin`
+2. `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin`
+3. `%LOCALAPPDATA%\Android\Sdk\build-tools\34.0.0`
+4. `%USERPROFILE%\.gradle\gradle-8.2\bin`
+5. `%LOCALAPPDATA%\Android\Sdk\platform-tools`
 
 ---
 
@@ -140,3 +140,4 @@ Restore `JAVA_HOME`, `ANDROID_HOME`, and `User` PATH to their exact original pre
 ```powershell
 & scripts/setup/restore-user-environment.ps1
 ```
+
