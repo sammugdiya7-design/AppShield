@@ -675,9 +675,7 @@ class VerificationEngine:
                 }
             )
 
-        all_categories = (
-            flagged_sensitive_categories + informational_fixture_categories
-        )
+        all_categories = flagged_sensitive_categories + informational_fixture_categories
 
         if not all_categories:
             return ObjectiveCheckResult(
@@ -699,9 +697,7 @@ class VerificationEngine:
             )
 
         if flagged_sensitive_categories:
-            total_flagged = sum(
-                c["match_count"] for c in flagged_sensitive_categories
-            )
+            total_flagged = sum(c["match_count"] for c in flagged_sensitive_categories)
             return ObjectiveCheckResult(
                 check_id="CHK-STR-01",
                 name="String Constant Pool Scan",
@@ -722,9 +718,7 @@ class VerificationEngine:
             )
 
         # Only benign fixture markers detected: classify as informational finding
-        total_fixture = sum(
-            c["match_count"] for c in informational_fixture_categories
-        )
+        total_fixture = sum(c["match_count"] for c in informational_fixture_categories)
         return ObjectiveCheckResult(
             check_id="CHK-STR-01",
             name="String Constant Pool Scan",
@@ -736,9 +730,7 @@ class VerificationEngine:
             observed_metric=f"{total_fixture} documented fixture test marker(s) detected across {total_strings} strings (informational)",
             details={
                 "total_strings_scanned": total_strings,
-                "flagged_categories_count": len(
-                    informational_fixture_categories
-                ),
+                "flagged_categories_count": len(informational_fixture_categories),
                 "flagged_categories": informational_fixture_categories,
                 "sensitive_findings": [],
                 "informational_findings": informational_fixture_categories,

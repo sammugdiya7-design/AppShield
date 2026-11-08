@@ -11,14 +11,15 @@
       4. Restores user-scope ANDROID_HOME to its exact original value (or clears it if originally unset).
       5. Restores user-scope PATH to its exact original value.
       6. Refreshes the current PowerShell process environment immediately.
-      7. Supports -Preview / -WhatIf mode to show what would be restored without modifying the system.
+      7. Supports -Preview mode to show what would be restored without modifying the system.
+      8. Strictly preserves Machine PATH and all system-wide environment configurations without mutation.
 
 .PARAMETER BackupFile
     Path to the backup JSON file. If omitted, the script automatically searches for the most recent
     backup file in $env:USERPROFILE\.appshield\backup\.
 
 .PARAMETER Preview
-    If specified, displays the exact values that would be restored without applying any changes.
+    Safe dry-run mechanism. If specified, displays the exact values that would be restored without applying any changes.
 
 .EXAMPLE
     .\restore-user-environment.ps1 -Preview
@@ -33,7 +34,7 @@
     Restores original environment variables from a specific backup file.
 #>
 
-[CmdletBinding(SupportsShouldProcess = $true)]
+[CmdletBinding()]
 param(
     [string]$BackupFile,
     [switch]$Preview
@@ -110,6 +111,8 @@ if ($Preview) {
     Write-Host "    Current Entry Count: $(if ($currentUserPath) { ($currentUserPath -split ';').Count } else { 0 })"
     Write-Host "    Restore Entry Count: $(if ($origUserPath) { ($origUserPath -split ';').Count } else { 0 })"
     Write-Host ""
+    Write-Host "  System Machine PATH: strictly preserved ($($currentMachinePath.Length) characters)."
+    Write-Host ""
     Write-Host "To execute this restoration, run .\restore-user-environment.ps1 without -Preview."
     return
 }
@@ -162,4 +165,3 @@ Write-Host "[SUCCESS] User environment successfully restored to original pre-App
 Write-Host "Current process session has been refreshed." -ForegroundColor Green
 Write-Host "Backup file retained for reference: '$BackupFile'" -ForegroundColor DarkGray
 Write-Host ""
-

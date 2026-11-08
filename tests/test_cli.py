@@ -532,3 +532,61 @@ def test_cli_protect_generic_config_error(tmp_path: Path, capsys):
     assert code == 1
     captured = capsys.readouterr()
     assert "Configuration Error: Generic parse issue" in captured.err
+
+
+def test_cli_protect_allow_network_dependencies_flag(tmp_path: Path):
+    """'appshield protect --allow-network-dependencies' sets config.android.offline to False."""
+    from appshield.adapters.base import ProtectionResult
+    from appshield.doctor import ToolReport
+
+    proj = tmp_path / "app"
+    proj.mkdir()
+    out = tmp_path / "out"
+    out.mkdir()
+    cfg = tmp_path / "appshield.yaml"
+    cfg.write_text(
+        f"""
+version: "1.0"
+project_name: "test_net_override"
+platform: "android"
+input:
+  project_dir: "{proj.as_posix()}"
+output:
+  dir: "{out.as_posix()}"
+android:
+  offline: true
+""",
+        encoding="utf-8",
+    )
+
+    mock_reports = [
+        ToolReport("Java Runtime (java)", True, "17.0.2", True, ""),
+        ToolReport("JAVA_HOME Variable", True, "/usr/lib/jvm/default", True, ""),
+        ToolReport("Gradle Build Tool", True, "8.2", True, ""),
+    ]
+
+    captured_config = []
+
+    def mock_stage_and_protect(
+        self, config, mapping_out=None, allow_production_signing=False
+    ):
+        captured_config.append(config)
+        return ProtectionResult(
+            success=True,
+            protected_artifact_path=out / "test_net_override-release-protected.apk",
+            logs=["Protected"],
+        )
+
+    with (
+        patch("appshield.cli.run_doctor_checks", return_value=mock_reports),
+        patch(
+            "appshield.cli.AndroidPipelineAdapter.stage_and_protect",
+            side_effect=mock_stage_and_protect,
+            autospec=True,
+        ),
+    ):
+        code = main(["protect", "-c", str(cfg), "--allow-network-dependencies"])
+
+    assert code == 0
+    assert len(captured_config) == 1
+    assert captured_config[0].android.offline is False

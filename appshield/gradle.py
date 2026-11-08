@@ -76,6 +76,10 @@ class GradleToolchainMissingError(GradleError):
     """Raised when required Gradle or Java toolchain components are missing."""
 
 
+class GradleToolchainIncompatibleError(GradleToolchainMissingError):
+    """Raised when an available Gradle binary or wrapper distribution is below the minimum required version (8.2+)."""
+
+
 class GradleTaskValidationError(GradleError):
     """Raised when a requested Gradle task name is invalid or suspicious."""
 
@@ -281,9 +285,76 @@ def kill_process_tree(pid: int) -> None:
                 pass
 
 
+MINIMUM_GRADLE_VERSION = (8, 2)
+MINIMUM_GRADLE_VERSION_STR = "8.2+"
+
+
+def parse_gradle_version(version_str: str) -> tuple[int, ...] | None:
+    """Extract (major, minor, ...) version tuple from gradle output or distribution string."""
+    m = re.search(r"(?:Gradle\s+|gradle-)([0-9]+(?:\.[0-9]+)+)", version_str)
+    if m:
+        try:
+            return tuple(int(x) for x in m.group(1).split("."))
+        except ValueError:
+            return None
+    return None
+
+
+def get_wrapper_distribution_version(
+    wrapper_properties_file: Path | None,
+) -> tuple[tuple[int, ...] | None, str | None]:
+    """Extract declared Gradle version from distributionUrl in gradle-wrapper.properties."""
+    if wrapper_properties_file is None or not wrapper_properties_file.is_file():
+        return None, None
+    try:
+        content = wrapper_properties_file.read_text(encoding="utf-8")
+        m = re.search(
+            r"distributionUrl=.*gradle-([0-9]+(?:\.[0-9]+)+)-(?:bin|all)\.zip",
+            content,
+        )
+        if m:
+            ver_str = m.group(1)
+            parts = tuple(int(x) for x in ver_str.split("."))
+            return parts, ver_str
+    except (OSError, ValueError, re.error):
+        return None, None
+    return None, None
+
+
+def check_gradle_cache_dependencies(
+    gradle_user_home: Path | None = None,
+) -> dict[str, bool]:
+    """
+    Check if essential AGP and R8 dependencies are present in the Gradle dependency cache.
+    Does not issue network requests.
+    """
+    home = gradle_user_home or (
+        Path(os.environ["GRADLE_USER_HOME"])
+        if "GRADLE_USER_HOME" in os.environ
+        else Path.home() / ".gradle"
+    )
+    cache_modules_dir = home / "caches" / "modules-2" / "files-2.1"
+    if not cache_modules_dir.is_dir():
+        return {
+            "agp_cached": False,
+            "r8_cached": False,
+            "cache_dir_exists": False,
+        }
+
+    agp_dir = cache_modules_dir / "com.android.tools.build" / "gradle"
+    r8_dir = cache_modules_dir / "com.android.tools" / "r8"
+
+    return {
+        "agp_cached": agp_dir.is_dir() and any(agp_dir.iterdir()),
+        "r8_cached": r8_dir.is_dir() and any(r8_dir.iterdir()),
+        "cache_dir_exists": True,
+    }
+
+
 def resolve_gradle_executable(
     project_dir: Path,
     custom_gradle_path: Path | None = None,
+    system_gradle_path: str | None = None,
 ) -> tuple[list[str], str]:
     """
     Determine the trusted Gradle command and execution mode for a project.
@@ -294,6 +365,7 @@ def resolve_gradle_executable(
 
     Raises:
         GradleToolchainMissingError: If no valid, trusted Gradle executable is available.
+        GradleToolchainIncompatibleError: If an available Gradle executable is below Gradle 8.2+.
     """
     resolved_dir = project_dir.resolve()
 
@@ -306,44 +378,66 @@ def resolve_gradle_executable(
             )
         return [str(custom_resolved)], "custom"
 
-    # 2. Project Gradle Wrapper
+    # 2. Project Gradle Wrapper: MUST have both script AND wrapper JAR
     wrapper_script_name = "gradlew.bat" if sys.platform == "win32" else "gradlew"
     wrapper_script = resolved_dir / wrapper_script_name
     wrapper_jar = resolved_dir / "gradle" / "wrapper" / "gradle-wrapper.jar"
+    wrapper_props = resolved_dir / "gradle" / "wrapper" / "gradle-wrapper.properties"
 
-    if wrapper_script.is_file():
-        # Check wrapper JAR presence
-        if wrapper_jar.is_file():
-            if sys.platform != "win32":
-                # Ensure execution permission on POSIX
-                if not os.access(wrapper_script, os.X_OK):
-                    try:
-                        wrapper_script.chmod(wrapper_script.stat().st_mode | 0o111)
-                    except OSError:
-                        pass
-            return [str(wrapper_script)], "wrapper"
-        else:
-            # Wrapper script exists, but wrapper JAR is missing.
-            # Do NOT silently download it. Check for system Gradle fallback.
-            system_gradle = shutil.which("gradle")
-            if system_gradle:
-                return [system_gradle], "system"
-            raise GradleToolchainMissingError(
-                f"Gradle Wrapper script '{wrapper_script_name}' exists, but the Wrapper JAR "
-                f"'{wrapper_jar.relative_to(resolved_dir)}' is missing, and no system 'gradle' "
-                f"executable was found on PATH. Silent download is forbidden by project safety rules. "
-                f"Please provide a trusted gradle-wrapper.jar or install Gradle system-wide."
+    if wrapper_script.is_file() and wrapper_jar.is_file():
+        # Validate wrapper declared version if properties exist
+        dec_parts, dec_str = get_wrapper_distribution_version(wrapper_props)
+        if dec_parts is not None and dec_parts < MINIMUM_GRADLE_VERSION:
+            raise GradleToolchainIncompatibleError(
+                f"Project Gradle Wrapper declares Gradle {dec_str}, which is below the minimum required version ({MINIMUM_GRADLE_VERSION_STR}). "
+                "Android Gradle Plugin 8.2 requires Gradle 8.2 or higher."
             )
+        if sys.platform != "win32":
+            # Ensure execution permission on POSIX
+            if not os.access(wrapper_script, os.X_OK):
+                try:
+                    wrapper_script.chmod(wrapper_script.stat().st_mode | 0o111)
+                except OSError:
+                    pass
+        return [str(wrapper_script)], "wrapper"
 
-    # 3. System Gradle on PATH
-    system_gradle = shutil.which("gradle")
-    if system_gradle:
-        return [system_gradle], "system"
+    # 3. Fallback to System Gradle on PATH
+    effective_system_gradle = system_gradle_path or shutil.which("gradle")
+    if effective_system_gradle:
+        # Check system Gradle version
+        try:
+            cmd_out = subprocess.check_output(  # nosec B603
+                [effective_system_gradle, "--version"],
+                text=True,
+                stderr=subprocess.STDOUT,
+                timeout=10,
+            )
+            parsed_ver = parse_gradle_version(cmd_out)
+        except (subprocess.SubprocessError, OSError):
+            parsed_ver = None
+
+        if parsed_ver is not None and parsed_ver < MINIMUM_GRADLE_VERSION:
+            ver_formatted = ".".join(str(x) for x in parsed_ver)
+            raise GradleToolchainIncompatibleError(
+                f"System Gradle executable at '{effective_system_gradle}' is version {ver_formatted}, "
+                f"which is below the minimum required version ({MINIMUM_GRADLE_VERSION_STR}). "
+                "Android Gradle Plugin 8.2 requires Gradle 8.2 or higher."
+            )
+        return [effective_system_gradle], "system"
+
+    # Neither complete wrapper nor system gradle available
+    if wrapper_script.is_file() and not wrapper_jar.is_file():
+        raise GradleToolchainMissingError(
+            f"Gradle Wrapper script '{wrapper_script_name}' exists, but the Wrapper JAR "
+            f"'{wrapper_jar.relative_to(resolved_dir)}' is missing, and no system 'gradle' "
+            "executable was found on PATH. Silent download is forbidden by project safety rules. "
+            "Please provide a trusted gradle-wrapper.jar or install Gradle 8.2+ system-wide."
+        )
 
     raise GradleToolchainMissingError(
         f"No Gradle build tool found for project at '{resolved_dir}'. "
         f"Neither a complete Gradle Wrapper ('{wrapper_script_name}' + 'gradle-wrapper.jar') "
-        f"nor a system 'gradle' binary was found on PATH."
+        "nor a system 'gradle' binary was found on PATH."
     )
 
 

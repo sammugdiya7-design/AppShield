@@ -22,6 +22,7 @@ from appshield.signing import ApkSignatureVerificationResult
 from appshield.verify import (
     FIXTURE_TEST_STRINGS,
     STANDARD_DISCLAIMER,
+    ObjectiveCheckResult,
     VerificationEngine,
     export_report_json,
     format_report_markdown,
@@ -524,9 +525,7 @@ class TestStringPoolScan:
         assert raw_secret not in details_str
         assert "[REDACTED_SECRET_PATTERN]" in details_str
 
-    def test_str_01_fixture_token_detected_and_redacted(
-        self, tmp_path: Path
-    ) -> None:
+    def test_str_01_fixture_token_detected_and_redacted(self, tmp_path: Path) -> None:
         fixture_token = FIXTURE_TEST_STRINGS[0]
         apk = create_test_apk(
             tmp_path / "app.apk",
@@ -592,13 +591,25 @@ class TestStringPoolScan:
             metadata={"build_id": "b-real-123"},
         )
         engine = VerificationEngine()
-        report = engine.run_all_checks(
-            apk_path=apk,
-            mapping_file=mapping_file,
-            build_result=build_res,
-            is_real_build=True,
-            signing_config=None,  # unsigned build
+        mock_aln = ObjectiveCheckResult(
+            check_id="CHK-ALN-01",
+            name="Zip Alignment Verification",
+            category="alignment",
+            outcome="VERIFIED",
+            status="PASS",
+            what_it_proves="Proves alignment",
+            what_it_does_not_prove="",
+            observed_metric="4-byte aligned",
+            details={},
         )
+        with patch.object(engine, "check_aln_01", return_value=mock_aln):
+            report = engine.run_all_checks(
+                apk_path=apk,
+                mapping_file=mapping_file,
+                build_result=build_res,
+                is_real_build=True,
+                signing_config=None,  # unsigned build
+            )
         str_check = next(
             c for c in report.objective_checks if c.check_id == "CHK-STR-01"
         )
@@ -633,13 +644,25 @@ class TestStringPoolScan:
             metadata={"build_id": "b-real-456"},
         )
         engine = VerificationEngine()
-        report = engine.run_all_checks(
-            apk_path=apk,
-            mapping_file=mapping_file,
-            build_result=build_res,
-            is_real_build=True,
-            signing_config=None,
+        mock_aln = ObjectiveCheckResult(
+            check_id="CHK-ALN-01",
+            name="Zip Alignment Verification",
+            category="alignment",
+            outcome="VERIFIED",
+            status="PASS",
+            what_it_proves="Proves alignment",
+            what_it_does_not_prove="",
+            observed_metric="4-byte aligned",
+            details={},
         )
+        with patch.object(engine, "check_aln_01", return_value=mock_aln):
+            report = engine.run_all_checks(
+                apk_path=apk,
+                mapping_file=mapping_file,
+                build_result=build_res,
+                is_real_build=True,
+                signing_config=None,
+            )
         str_check = next(
             c for c in report.objective_checks if c.check_id == "CHK-STR-01"
         )

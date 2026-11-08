@@ -676,8 +676,17 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 active_runner = GradleRunner(
                     project_dir=staging_dir,
                     timeout_seconds=300.0,
-                    offline=True,
+                    offline=config.android.offline,
                     no_daemon=True,
+                )
+
+            if not config.android.offline:
+                logs.append(
+                    "Network dependency resolution EXPLICITLY AUTHORIZED for this build. Operating in staging sandbox."
+                )
+            else:
+                logs.append(
+                    "Offline mode enforced (--offline). Using local Gradle and Android dependency cache."
                 )
 
             build_res = active_runner.run_task(config.android.gradle_task)

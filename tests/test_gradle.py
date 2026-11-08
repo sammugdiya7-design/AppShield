@@ -21,8 +21,10 @@ from appshield.gradle import (
     GradleRunner,
     GradleTaskValidationError,
     GradleTimeoutError,
+    GradleToolchainIncompatibleError,
     GradleToolchainMissingError,
     build_safe_env,
+    check_gradle_cache_dependencies,
     kill_process_tree,
     locate_build_apk,
     locate_r8_mapping,
@@ -201,6 +203,77 @@ class TestGradleExecutableResolution:
         with pytest.raises(GradleToolchainMissingError) as exc_info:
             resolve_gradle_executable(tmp_path)
         assert "No Gradle build tool found" in str(exc_info.value)
+
+    def test_wrapper_with_incompatible_declared_version_raises(
+        self, tmp_path: Path
+    ) -> None:
+        script_name = "gradlew.bat" if sys.platform == "win32" else "gradlew"
+        (tmp_path / script_name).write_text("dummy", encoding="utf-8")
+        wrap_dir = tmp_path / "gradle" / "wrapper"
+        wrap_dir.mkdir(parents=True)
+        (wrap_dir / "gradle-wrapper.jar").write_bytes(b"dummy")
+        (wrap_dir / "gradle-wrapper.properties").write_text(
+            "distributionUrl=https\\://services.gradle.org/distributions/gradle-7.6-bin.zip\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(GradleToolchainIncompatibleError) as exc_info:
+            resolve_gradle_executable(tmp_path)
+        assert "Gradle 7.6" in str(exc_info.value)
+        assert "requires Gradle 8.2 or higher" in str(exc_info.value)
+
+    def test_system_gradle_incompatible_version_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "shutil.which", lambda x: "/usr/bin/gradle" if x == "gradle" else None
+        )
+        monkeypatch.setattr(
+            "subprocess.check_output",
+            lambda cmd, **kwargs: "Gradle 7.5\nBuild time: 2022",
+        )
+        with pytest.raises(GradleToolchainIncompatibleError) as exc_info:
+            resolve_gradle_executable(tmp_path)
+        assert "7.5" in str(exc_info.value)
+        assert "8.2" in str(exc_info.value)
+
+    def test_check_gradle_cache_dependencies_missing_and_present(
+        self, tmp_path: Path
+    ) -> None:
+        # 1. Missing cache
+        res = check_gradle_cache_dependencies(tmp_path)
+        assert res["cache_dir_exists"] is False
+        assert res["agp_cached"] is False
+        assert res["r8_cached"] is False
+
+        # 2. Present cache
+        agp_cache = (
+            tmp_path
+            / "caches"
+            / "modules-2"
+            / "files-2.1"
+            / "com.android.tools.build"
+            / "gradle"
+            / "8.2.2"
+        )
+        agp_cache.mkdir(parents=True)
+        (agp_cache / "gradle-8.2.2.jar").write_bytes(b"dummy")
+
+        r8_cache = (
+            tmp_path
+            / "caches"
+            / "modules-2"
+            / "files-2.1"
+            / "com.android.tools"
+            / "r8"
+            / "8.2.33"
+        )
+        r8_cache.mkdir(parents=True)
+        (r8_cache / "r8-8.2.33.jar").write_bytes(b"dummy")
+
+        res_populated = check_gradle_cache_dependencies(tmp_path)
+        assert res_populated["cache_dir_exists"] is True
+        assert res_populated["agp_cached"] is True
+        assert res_populated["r8_cached"] is True
 
 
 class TestGradleRunnerExecution:

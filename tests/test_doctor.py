@@ -188,8 +188,8 @@ def test_run_doctor_checks_java_8_incompatible(tmp_path: Path):
     assert "Detected Java 8" in java_rep.remediation_hint
 
 
-def test_run_doctor_checks_project_gradlew_detection(tmp_path: Path):
-    """Test that doctor checks detect gradlew in the provided project directory."""
+def test_run_doctor_checks_incomplete_wrapper_missing_jar(tmp_path: Path):
+    """Test that doctor reports incomplete wrapper when gradle-wrapper.jar is missing and no system gradle exists."""
     project_dir = tmp_path / "sample_app"
     project_dir.mkdir()
     gradlew_file = project_dir / "gradlew"
@@ -200,10 +200,107 @@ def test_run_doctor_checks_project_gradlew_detection(tmp_path: Path):
 
     report_map = {r.name: r for r in reports}
     gradle_report = report_map["Gradle Build Tool"]
-    assert gradle_report.is_available is True
+    assert gradle_report.is_available is False
     assert gradle_report.version is not None
-    assert "project wrapper detected" in gradle_report.version
-    assert gradle_report.path == str(gradlew_file)
+    assert "Incomplete wrapper" in gradle_report.version
+    assert "missing gradle-wrapper.jar" in gradle_report.version
+
+
+def test_run_doctor_checks_complete_wrapper_success(tmp_path: Path):
+    """Test that doctor reports complete wrapper as installed when both script and JAR exist."""
+    project_dir = tmp_path / "sample_app"
+    wrapper_dir = project_dir / "gradle" / "wrapper"
+    wrapper_dir.mkdir(parents=True)
+    (project_dir / "gradlew").write_text("#!/bin/sh\n", encoding="utf-8")
+    (wrapper_dir / "gradle-wrapper.jar").write_bytes(b"dummy_jar")
+    (wrapper_dir / "gradle-wrapper.properties").write_text(
+        "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.2-bin.zip\n",
+        encoding="utf-8",
+    )
+
+    with patch("shutil.which", return_value=None):
+        reports = run_doctor_checks(project_dir=project_dir)
+
+    report_map = {r.name: r for r in reports}
+    gradle_report = report_map["Gradle Build Tool"]
+    assert gradle_report.is_available is True
+    assert "Gradle 8.2 (wrapper)" in (gradle_report.version or "")
+
+
+def test_run_doctor_checks_complete_wrapper_incompatible_version(
+    tmp_path: Path,
+):
+    """Test that doctor reports incompatible when wrapper declares Gradle < 8.2."""
+    project_dir = tmp_path / "sample_app"
+    wrapper_dir = project_dir / "gradle" / "wrapper"
+    wrapper_dir.mkdir(parents=True)
+    (project_dir / "gradlew").write_text("#!/bin/sh\n", encoding="utf-8")
+    (wrapper_dir / "gradle-wrapper.jar").write_bytes(b"dummy_jar")
+    (wrapper_dir / "gradle-wrapper.properties").write_text(
+        "distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-bin.zip\n",
+        encoding="utf-8",
+    )
+
+    with patch("shutil.which", return_value=None):
+        reports = run_doctor_checks(project_dir=project_dir)
+
+    report_map = {r.name: r for r in reports}
+    gradle_report = report_map["Gradle Build Tool"]
+    assert gradle_report.is_available is False
+    assert "Gradle 7.5 (wrapper)" in (gradle_report.version or "")
+    assert "below required Gradle 8.2+" in gradle_report.remediation_hint
+
+
+def test_run_doctor_checks_system_gradle_compatible(tmp_path: Path):
+    """Test that doctor reports compatible system Gradle when wrapper is missing."""
+    project_dir = tmp_path / "sample_app"
+    project_dir.mkdir()
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/gradle"),
+        patch(
+            "appshield.doctor.check_command_version",
+            return_value="Gradle 8.5\nBuild time: 2024",
+        ),
+    ):
+        reports = run_doctor_checks(project_dir=project_dir)
+
+    report_map = {r.name: r for r in reports}
+    gradle_report = report_map["Gradle Build Tool"]
+    assert gradle_report.is_available is True
+    assert "Gradle 8.5 (system)" in (gradle_report.version or "")
+
+
+def test_run_doctor_checks_system_gradle_incompatible(tmp_path: Path):
+    """Test that doctor reports incompatible system Gradle when version < 8.2."""
+    project_dir = tmp_path / "sample_app"
+    project_dir.mkdir()
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/gradle"),
+        patch(
+            "appshield.doctor.check_command_version",
+            return_value="Gradle 7.6.1\nBuild time: 2023",
+        ),
+    ):
+        reports = run_doctor_checks(project_dir=project_dir)
+
+    report_map = {r.name: r for r in reports}
+    gradle_report = report_map["Gradle Build Tool"]
+    assert gradle_report.is_available is False
+    assert "Gradle 7.6.1 (system)" in (gradle_report.version or "")
+    assert "requires Gradle 8.2 or higher" in gradle_report.remediation_hint
+
+
+def test_run_doctor_checks_missing_gradle_completely():
+    """Test that doctor reports missing when neither wrapper nor system gradle is present."""
+    with patch("shutil.which", return_value=None):
+        reports = run_doctor_checks(project_dir=None)
+
+    report_map = {r.name: r for r in reports}
+    gradle_report = report_map["Gradle Build Tool"]
+    assert gradle_report.is_available is False
+    assert "install Gradle 8.2+ system-wide" in gradle_report.remediation_hint
 
 
 def test_run_doctor_checks_fixture_inspection():

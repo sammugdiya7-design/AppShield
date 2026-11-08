@@ -441,8 +441,8 @@ def test_setup_runbook_syntax_and_integrity() -> None:
                 )
                 commands.append(line_str)
 
-    assert len(commands) == 14, (
-        f"Expected 14 executable commands, found {len(commands)}"
+    assert len(commands) == 18, (
+        f"Expected 18 executable commands, found {len(commands)}"
     )
 
     # Verify specific required variable references in extracted commands
@@ -504,3 +504,142 @@ def test_setup_runbook_syntax_and_integrity() -> None:
             text=True,
         )
         assert res.returncode == 0, f"PowerShell validation failed: {res.stderr}"
+
+
+def test_runbook_commands_and_paths() -> None:
+    """Verify that RUNBOOK.md commands, configuration paths, output directories, and artifact names agree."""
+    import re
+
+    import yaml
+
+    repo_root = Path(__file__).parent.parent
+    runbook_path = repo_root / "scripts" / "setup" / "RUNBOOK.md"
+    content = runbook_path.read_text(encoding="utf-8")
+
+    # 1. Verify referenced configuration file exists
+    assert "tests/fixtures/sample_android_gradle_project/appshield.yaml" in content
+    assert "appshield.json" not in content, (
+        "Nonexistent appshield.json must not be referenced"
+    )
+    cfg_rel = "tests/fixtures/sample_android_gradle_project/appshield.yaml"
+    cfg_path = repo_root / cfg_rel
+    assert cfg_path.is_file(), (
+        f"Referenced configuration file does not exist: {cfg_path}"
+    )
+
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        cfg_data = yaml.safe_load(f)
+    project_name = cfg_data.get("project_name", "")
+    assert project_name == "sample_android_gradle_project"
+    expected_apk_name = f"{project_name}-release-protected.apk"
+
+    # 2. Extract protect commands
+    pattern = re.compile(r"```powershell\r?\n(.*?)\r?\n```", re.DOTALL)
+    blocks = pattern.findall(content)
+    protect_cmds = [
+        line.strip()
+        for b in blocks
+        for line in b.splitlines()
+        if "appshield protect" in line and not line.strip().startswith("#")
+    ]
+    assert len(protect_cmds) >= 1, "Expected at least one 'appshield protect' command"
+    for p_cmd in protect_cmds:
+        assert f"-c {cfg_rel}" in p_cmd
+        assert "--output-dir dist/protected" in p_cmd
+
+    # 3. Extract verify commands
+    verify_cmds = [
+        line.strip()
+        for b in blocks
+        for line in b.splitlines()
+        if "appshield verify" in line and not line.strip().startswith("#")
+    ]
+    assert len(verify_cmds) >= 1, "Expected at least one 'appshield verify' command"
+    for v_cmd in verify_cmds:
+        assert f"dist/protected/{expected_apk_name}" in v_cmd
+        assert f"-c {cfg_rel}" in v_cmd
+
+    # 4. Path agreement
+    expected_output_dir = "dist/protected"
+    expected_artifact_rel = f"{expected_output_dir}/{expected_apk_name}"
+    assert any(expected_artifact_rel in v_cmd for v_cmd in verify_cmds)
+
+
+def test_setup_scripts_safety() -> None:
+    """Verify toolchain setup scripts enforce transactional safety, dry-run transparency, and non-mutation of machine state."""
+    import shutil
+    import subprocess
+
+    repo_root = Path(__file__).parent.parent
+    scripts_dir = repo_root / "scripts" / "setup"
+    script_files = [
+        scripts_dir / "download-toolchain.ps1",
+        scripts_dir / "configure-user-environment.ps1",
+        scripts_dir / "restore-user-environment.ps1",
+    ]
+
+    for sf in script_files:
+        assert sf.is_file(), f"Missing setup script: {sf}"
+        script_text = sf.read_text(encoding="utf-8")
+
+        # Must not contain misleading SupportsShouldProcess
+        assert "SupportsShouldProcess" not in script_text, (
+            f"Script {sf.name} should not claim SupportsShouldProcess without PSCmdlet.ShouldProcess"
+        )
+        assert "[CmdletBinding()]" in script_text, (
+            f"Script {sf.name} must use [CmdletBinding()]"
+        )
+        assert "-Preview" in script_text, (
+            f"Script {sf.name} must implement -Preview dry-run mechanism"
+        )
+
+    # configure & restore scripts must NEVER mutate Machine environment
+    for sf in [
+        scripts_dir / "configure-user-environment.ps1",
+        scripts_dir / "restore-user-environment.ps1",
+    ]:
+        text = sf.read_text(encoding="utf-8")
+        assert "SetEnvironmentVariable" in text
+        # SetEnvironmentVariable should only be called with User target
+        machine_set = [
+            line
+            for line in text.splitlines()
+            if "SetEnvironmentVariable" in line
+            and "[EnvironmentVariableTarget]::Machine" in line
+        ]
+        assert not machine_set, (
+            f"Script {sf.name} must never modify Machine environment: {machine_set}"
+        )
+
+    # download-toolchain.ps1 must enforce -Force before replacing incomplete directories and have transactional swap
+    dl_text = (scripts_dir / "download-toolchain.ps1").read_text(encoding="utf-8")
+    assert "Install-WithTransactionalSwap" in dl_text
+    assert "-Force" in dl_text
+    assert "incomplete or invalid" in dl_text
+    assert ".bak." in dl_text
+
+    # configure script must implement collision-free backup naming
+    cfg_text = (scripts_dir / "configure-user-environment.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "while (Test-Path $backupFile)" in cfg_text
+
+    # PowerShell AST syntax parsing for all 3 scripts if PowerShell is available
+    pwsh_exe = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if pwsh_exe:
+        for sf in script_files:
+            parse_cmd = (
+                f"$tokens = $null; $errors = $null;\n"
+                f"[System.Management.Automation.Language.Parser]::ParseFile('{sf.resolve().as_posix()}', [ref]$tokens, [ref]$errors);\n"
+                f"if ($errors.Count -gt 0) {{ $errors | ForEach-Object {{ Write-Error $_ }}; exit 1 }}\n"
+                f"exit 0"
+            )
+            res = subprocess.run(
+                [pwsh_exe, "-NoProfile", "-Command", parse_cmd],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert res.returncode == 0, (
+                f"PowerShell AST syntax error in {sf.name}: {res.stderr}"
+            )

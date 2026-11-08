@@ -102,6 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explicitly authorize using a production signing keystore.",
     )
     protect_parser.add_argument(
+        "--allow-network-dependencies",
+        action="store_true",
+        default=False,
+        help="Explicitly authorize network dependency resolution during this build (overrides default offline mode). Use for initial dependency warm-up in staging.",
+    )
+    protect_parser.add_argument(
         "--mapping-out",
         type=Path,
         default=None,
@@ -237,6 +243,7 @@ def cmd_protect(
     platform: Path | None = None,
     overwrite: bool = False,
     allow_production_signing: bool = False,
+    allow_network_dependencies: bool = False,
     mapping_out: Path | None = None,
 ) -> int:
     """Handle `appshield protect` command."""
@@ -263,6 +270,8 @@ def cmd_protect(
         config.platform = str(platform)
     if overwrite:
         config.output.overwrite_existing = True
+    if allow_network_dependencies:
+        config.android.offline = False
 
     print(f"  - Project Name : {config.project_name}")
     print(f"  - Platform     : {config.platform}")
@@ -477,6 +486,7 @@ def main(args: list[str] | None = None) -> int:
             platform=parsed_args.platform,
             overwrite=parsed_args.overwrite,
             allow_production_signing=parsed_args.allow_production_signing,
+            allow_network_dependencies=parsed_args.allow_network_dependencies,
             mapping_out=parsed_args.mapping_out,
         )
     elif parsed_args.command == "verify":

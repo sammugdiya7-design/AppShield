@@ -14,6 +14,11 @@ import subprocess  # nosec B404
 from dataclasses import dataclass
 from pathlib import Path
 
+from appshield.gradle import (
+    get_wrapper_distribution_version,
+    parse_gradle_version,
+)
+
 
 @dataclass(frozen=True)
 class ToolReport:
@@ -277,50 +282,133 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
         )
     )
 
-    # 7. Gradle Build Tool / Gradle Wrapper
-    gradle_system = shutil.which("gradle")
-    gradlew_path: Path | None = None
-    if project_dir and (project_dir / "gradlew").is_file():
-        gradlew_path = project_dir / "gradlew"
-    elif project_dir and (project_dir / "gradlew.bat").is_file():
-        gradlew_path = project_dir / "gradlew.bat"
+    # 7. Gradle Build Tool / Complete Wrapper / System Gradle
+    # A project wrapper is ONLY valid if BOTH the script AND gradle-wrapper.jar exist.
+    has_wrapper_script = False
+    has_wrapper_jar = False
+    gradlew_script_path: Path | None = None
+    wrapper_props_path: Path | None = None
 
-    if gradlew_path is not None:
-        reports.append(
-            ToolReport(
-                name="Gradle Build Tool",
-                is_available=True,
-                version="gradlew (project wrapper detected)",
-                target_version="Gradle 8.2+",
-                required=True,
-                remediation_hint="",
-                path=str(gradlew_path),
-                validated_live=False,
-            )
+    if project_dir:
+        cand_sh = project_dir / "gradlew"
+        cand_bat = project_dir / "gradlew.bat"
+        if cand_bat.is_file() if os.name == "nt" else cand_sh.is_file():
+            gradlew_script_path = cand_bat if os.name == "nt" else cand_sh
+            has_wrapper_script = True
+        elif cand_sh.is_file():
+            gradlew_script_path = cand_sh
+            has_wrapper_script = True
+        elif cand_bat.is_file():
+            gradlew_script_path = cand_bat
+            has_wrapper_script = True
+
+        jar_cand = project_dir / "gradle" / "wrapper" / "gradle-wrapper.jar"
+        has_wrapper_jar = jar_cand.is_file()
+        props_cand = project_dir / "gradle" / "wrapper" / "gradle-wrapper.properties"
+        if props_cand.is_file():
+            wrapper_props_path = props_cand
+
+    is_complete_wrapper = has_wrapper_script and has_wrapper_jar
+    gradle_system = shutil.which("gradle")
+
+    if is_complete_wrapper and gradlew_script_path is not None:
+        # Check declared wrapper distribution version
+        dec_parts, dec_str = (
+            get_wrapper_distribution_version(wrapper_props_path)
+            if wrapper_props_path
+            else (None, None)
         )
+        if dec_parts is not None and dec_parts < (8, 2):
+            reports.append(
+                ToolReport(
+                    name="Gradle Build Tool",
+                    is_available=False,
+                    version=f"Gradle {dec_str} (wrapper)",
+                    target_version="Gradle 8.2+",
+                    required=True,
+                    remediation_hint=f"Project Gradle Wrapper declares Gradle {dec_str}, which is below required Gradle 8.2+. Update gradle-wrapper.properties.",
+                    path=str(gradlew_script_path),
+                    validated_live=False,
+                )
+            )
+        else:
+            ver_label = (
+                f"Gradle {dec_str} (wrapper)"
+                if dec_str
+                else "gradlew (complete wrapper)"
+            )
+            reports.append(
+                ToolReport(
+                    name="Gradle Build Tool",
+                    is_available=True,
+                    version=ver_label,
+                    target_version="Gradle 8.2+",
+                    required=True,
+                    remediation_hint="",
+                    path=str(gradlew_script_path),
+                    validated_live=False,
+                )
+            )
     elif gradle_system:
-        ver = check_command_version(["gradle", "--version"])
-        reports.append(
-            ToolReport(
-                name="Gradle Build Tool",
-                is_available=True,
-                version=ver or "System Gradle",
-                target_version="Gradle 8.2+",
-                required=True,
-                remediation_hint="",
-                path=gradle_system,
-                validated_live=False,
-            )
+        # System Gradle fallback
+        ver_output = check_command_version(["gradle", "--version"])
+        parsed_sys_ver = parse_gradle_version(ver_output or "") if ver_output else None
+        sys_ver_str = (
+            ".".join(str(x) for x in parsed_sys_ver) if parsed_sys_ver else None
         )
+
+        if parsed_sys_ver is not None and parsed_sys_ver < (8, 2):
+            reports.append(
+                ToolReport(
+                    name="Gradle Build Tool",
+                    is_available=False,
+                    version=f"Gradle {sys_ver_str} (system)",
+                    target_version="Gradle 8.2+",
+                    required=True,
+                    remediation_hint=f"Detected system Gradle {sys_ver_str}. Android Gradle Plugin 8.2 requires Gradle 8.2 or higher.",
+                    path=gradle_system,
+                    validated_live=False,
+                )
+            )
+        else:
+            reports.append(
+                ToolReport(
+                    name="Gradle Build Tool",
+                    is_available=True,
+                    version=(
+                        f"Gradle {sys_ver_str} (system)"
+                        if sys_ver_str
+                        else (ver_output or "System Gradle")
+                    ),
+                    target_version="Gradle 8.2+",
+                    required=True,
+                    remediation_hint="",
+                    path=gradle_system,
+                    validated_live=False,
+                )
+            )
     else:
+        # Neither complete wrapper nor system gradle available
+        if has_wrapper_script and not has_wrapper_jar:
+            hint = (
+                "Gradle Wrapper script exists, but 'gradle/wrapper/gradle-wrapper.jar' is missing "
+                "and no system 'gradle' was found on PATH. Live execution requires a complete wrapper "
+                "('gradlew' + 'gradle-wrapper.jar') or system Gradle 8.2+."
+            )
+            v_desc = "Incomplete wrapper (missing gradle-wrapper.jar)"
+        else:
+            hint = "Ensure project contains a complete 'gradlew' wrapper ('gradlew' + 'gradle-wrapper.jar') or install Gradle 8.2+ system-wide."
+            v_desc = None
+
         reports.append(
             ToolReport(
                 name="Gradle Build Tool",
                 is_available=False,
-                version=None,
+                version=v_desc,
                 target_version="Gradle 8.2+",
                 required=True,
-                remediation_hint="Ensure project contains 'gradlew' wrapper or install Gradle system-wide.",
+                remediation_hint=hint,
+                path=str(gradlew_script_path) if gradlew_script_path else None,
                 validated_live=False,
             )
         )

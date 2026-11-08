@@ -118,6 +118,7 @@ class AndroidConfig:
     build_variant: str = "release"
     gradle_task: str = "assembleRelease"
     r8_rules_file: Path | None = None
+    offline: bool = True
     signing: SigningConfig = field(default_factory=SigningConfig)
 
 
@@ -170,6 +171,7 @@ class AppShieldConfig:
                 "r8_rules_file": str(self.android.r8_rules_file)
                 if self.android.r8_rules_file
                 else None,
+                "offline": self.android.offline,
                 "signing": {
                     "enabled": self.android.signing.enabled,
                     "is_production": self.android.signing.is_production,
@@ -426,11 +428,14 @@ def validate_and_parse_config(
             key_password_env=key_pass_env,
         )
 
+        android_offline = bool(raw_android.get("offline", True))
+
         android_config = AndroidConfig(
             project_type=project_type,
             build_variant=build_variant,
             gradle_task=gradle_task,
             r8_rules_file=r8_rules_path,
+            offline=android_offline,
             signing=signing_config,
         )
 
