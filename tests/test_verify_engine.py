@@ -856,6 +856,116 @@ class TestReportGeneration:
             assert bld_check2.status == "FAIL"
             assert "does not match build result mapping" in bld_check2.observed_metric
 
+    def test_unsigned_apk_not_installation_ready(self, tmp_path: Path) -> None:
+        """An unsigned APK may pass code protection verification, but must NEVER be installation-ready."""
+        apk = create_test_apk(
+            tmp_path / "unsigned.apk",
+            classes=["a.a", "com.example.sample.MainActivity"],
+        )
+        engine = VerificationEngine(project_name="unsigned_test")
+        mock_aln = ObjectiveCheckResult(
+            check_id="CHK-ALN-01",
+            name="Zip Alignment",
+            category="alignment",
+            outcome="VERIFIED",
+            status="PASS",
+            what_it_proves="Aligned",
+            what_it_does_not_prove="",
+            observed_metric="4-byte aligned",
+            details={},
+        )
+        mock_bld = ObjectiveCheckResult(
+            check_id="CHK-BLD-01",
+            name="Build Verification",
+            category="build",
+            outcome="VERIFIED",
+            status="PASS",
+            what_it_proves="Real build",
+            what_it_does_not_prove="",
+            observed_metric="Exit 0",
+            details={},
+        )
+        mock_sym = ObjectiveCheckResult(
+            check_id="CHK-SYM-01",
+            name="Symbol Obfuscation",
+            category="obfuscation",
+            outcome="VERIFIED",
+            status="PASS",
+            what_it_proves="Obfuscated",
+            what_it_does_not_prove="",
+            observed_metric="100%",
+            details={},
+        )
+        with (
+            patch.object(engine, "check_aln_01", return_value=mock_aln),
+            patch.object(engine, "check_bld_01", return_value=mock_bld),
+            patch.object(engine, "check_sym_01", return_value=mock_sym),
+        ):
+            report = engine.run_all_checks(
+                apk_path=apk,
+                is_real_build=True,
+                signing_config=None,  # signing disabled
+            )
+
+        assert report.is_verified_protected is True
+        assert report.is_installation_ready is False
+        assert "NOT READY (Unsigned artifact" in report.installation_readiness_status
+        assert "Android Installation Ready : NOT READY" in format_report_terminal(
+            report
+        )
+        assert "- **Installation Ready**: `NOT READY" in format_report_markdown(report)
+
+    def test_signed_apk_installation_readiness(self, tmp_path: Path) -> None:
+        """A signed APK that passes alignment and APK validity is installation-ready."""
+        apk = create_test_apk(
+            tmp_path / "signed.apk", classes=["a.a", "com.example.sample.MainActivity"]
+        )
+        engine = VerificationEngine(project_name="signed_test")
+        mock_aln = ObjectiveCheckResult(
+            check_id="CHK-ALN-01",
+            name="Zip Alignment",
+            category="alignment",
+            outcome="VERIFIED",
+            status="PASS",
+            what_it_proves="Aligned",
+            what_it_does_not_prove="",
+            observed_metric="4-byte aligned",
+            details={},
+        )
+        mock_sig_test = ObjectiveCheckResult(
+            check_id="CHK-SIG-01",
+            name="Signature Verification",
+            category="signature",
+            outcome="VERIFIED",
+            status="PASS",
+            what_it_proves="Signed",
+            what_it_does_not_prove="",
+            observed_metric="Valid test signature",
+            details={},
+        )
+        from appshield.config import SigningConfig
+
+        test_sign_cfg = SigningConfig(
+            enabled=True, keystore_path=Path("test.jks"), is_production=False
+        )
+
+        with (
+            patch.object(engine, "check_aln_01", return_value=mock_aln),
+            patch.object(engine, "check_sig_01", return_value=mock_sig_test),
+        ):
+            report_test = engine.run_all_checks(
+                apk_path=apk,
+                is_real_build=True,
+                signing_config=test_sign_cfg,
+            )
+
+        assert report_test.is_installation_ready is True
+        assert "TEST / EMULATOR ONLY" in report_test.installation_readiness_status
+        assert (
+            "Android Installation Ready : TEST / EMULATOR ONLY"
+            in format_report_terminal(report_test)
+        )
+
 
 class TestSigningCredentialIsolationBoundary:
     """

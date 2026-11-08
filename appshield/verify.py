@@ -87,6 +87,43 @@ class VerificationReport:
     is_verified_protected: bool
     disclaimer: str
 
+    @property
+    def is_installation_ready(self) -> bool:
+        """
+        Determines whether the APK artifact can be installed on an Android device.
+        Android Package Manager strictly requires an active signature (v1/v2).
+        Unsigned APKs strictly cannot be installed on any device or emulator.
+        """
+        sig_type = self.artifact.get("signature_type", "unsigned")
+        has_valid_sig = sig_type in ("test_signed", "production_signed")
+        sig_check_passed = any(
+            c.check_id == "CHK-SIG-01" and c.status == "PASS"
+            for c in self.objective_checks
+        )
+        apk_check_passed = any(
+            c.check_id == "CHK-APK-01" and c.status == "PASS"
+            for c in self.objective_checks
+        )
+        aln_check_passed = any(
+            c.check_id == "CHK-ALN-01" and c.status == "PASS"
+            for c in self.objective_checks
+        )
+        return bool(
+            has_valid_sig and sig_check_passed and apk_check_passed and aln_check_passed
+        )
+
+    @property
+    def installation_readiness_status(self) -> str:
+        """Human-readable installation readiness description."""
+        sig_type = self.artifact.get("signature_type", "unsigned")
+        if self.is_installation_ready:
+            if sig_type == "test_signed":
+                return "TEST / EMULATOR ONLY (Signed with disposable test key; not suitable for production release)"
+            return "READY (Production signed and 4-byte aligned)"
+        if sig_type == "unsigned":
+            return "NOT READY (Unsigned artifact; Android OS requires an APK signature for installation)"
+        return "NOT READY (APK structure, alignment, or signature checks incomplete)"
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "audit_version": self.audit_version,
@@ -95,6 +132,8 @@ class VerificationReport:
             "artifact": self.artifact,
             "summary": self.summary,
             "is_verified_protected": self.is_verified_protected,
+            "is_installation_ready": self.is_installation_ready,
+            "installation_readiness_status": self.installation_readiness_status,
             "objective_checks": [asdict(c) for c in self.objective_checks],
             "disclaimer": self.disclaimer,
         }
@@ -1035,7 +1074,8 @@ def format_report_terminal(report: VerificationReport) -> str:
                 f"{report.summary.get('skipped', 0)} Skipped, "
                 f"{report.summary.get('info', 0)} Informational"
             ),
-            f"Protected Release Verified: {'YES' if report.is_verified_protected else 'NO'}",
+            f"Protected Release Verified : {'YES' if report.is_verified_protected else 'NO'}",
+            f"Android Installation Ready : {report.installation_readiness_status}",
             "=" * 68,
             f"Disclaimer: {report.disclaimer}",
             "=" * 68,
@@ -1057,6 +1097,7 @@ def format_report_markdown(report: VerificationReport) -> str:
         f"- **Signature**: `{report.artifact.get('signature_type')}`",
         f"- **Real Build**: `{'Yes' if report.artifact.get('is_real_build') else 'No (Simulated / Fixture)'}`",
         f"- **Verified Protected**: `{'Yes' if report.is_verified_protected else 'No'}`",
+        f"- **Installation Ready**: `{report.installation_readiness_status}`",
         "",
         "## Summary",
         "",

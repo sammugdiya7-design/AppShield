@@ -272,6 +272,10 @@ def cmd_protect(
         config.output.overwrite_existing = True
     if allow_network_dependencies:
         config.android.offline = False
+        print(
+            "  [NOTICE] Network dependency access explicitly authorized by developer (--allow-network-dependencies).\n"
+            "           Gradle will resolve dependencies during this full protection build in the staging sandbox."
+        )
 
     print(f"  - Project Name : {config.project_name}")
     print(f"  - Platform     : {config.platform}")
@@ -369,6 +373,13 @@ def cmd_protect(
         return 1
 
     print(f"Protection SUCCEEDED: '{result.protected_artifact_path}'")
+    if result.verification_report is not None:
+        print(
+            f"  - Code-Protection Verified   : {'YES' if result.verification_report.is_verified_protected else 'NO'}"
+        )
+        print(
+            f"  - Android Installation Ready : {result.verification_report.installation_readiness_status}"
+        )
     if result.audit_report_path:
         print(f"Audit Report: '{result.audit_report_path}'")
     return 0
@@ -461,6 +472,8 @@ def cmd_verify(
             print(f"\nVerification FAILED: {failed_count} objective check(s) failed.")
     else:
         print("\nVerified Protected Release: YES")
+
+    print(f"Android Installation Ready: {report.installation_readiness_status}")
 
     return 1 if failed_count > 0 else 0
 
