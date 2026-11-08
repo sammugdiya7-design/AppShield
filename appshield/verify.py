@@ -640,7 +640,8 @@ class VerificationEngine:
             )
 
         total_strings = len(dex_summary.unique_strings)
-        flagged_categories: list[dict[str, Any]] = []
+        flagged_sensitive_categories: list[dict[str, Any]] = []
+        informational_fixture_categories: list[dict[str, Any]] = []
 
         # Scan against regular expression sensitive patterns
         for pattern, label in self.sensitive_patterns:
@@ -649,7 +650,7 @@ class VerificationEngine:
                 if pattern.search(s):
                     matches_count += 1
             if matches_count > 0:
-                flagged_categories.append(
+                flagged_sensitive_categories.append(
                     {
                         "category": label,
                         "match_count": matches_count,
@@ -657,7 +658,7 @@ class VerificationEngine:
                     }
                 )
 
-        # Scan against fixture test tokens
+        # Scan against known, explicitly documented fixture test tokens
         fixture_matches_count = 0
         for token in self.fixture_tokens:
             for s in dex_summary.unique_strings:
@@ -666,7 +667,7 @@ class VerificationEngine:
                     break
 
         if fixture_matches_count > 0:
-            flagged_categories.append(
+            informational_fixture_categories.append(
                 {
                     "category": "Fixture Test Tokens",
                     "match_count": fixture_matches_count,
@@ -674,7 +675,11 @@ class VerificationEngine:
                 }
             )
 
-        if not flagged_categories:
+        all_categories = (
+            flagged_sensitive_categories + informational_fixture_categories
+        )
+
+        if not all_categories:
             return ObjectiveCheckResult(
                 check_id="CHK-STR-01",
                 name="String Constant Pool Scan",
@@ -688,25 +693,57 @@ class VerificationEngine:
                     "total_strings_scanned": total_strings,
                     "flagged_categories_count": 0,
                     "flagged_categories": [],
+                    "sensitive_findings": [],
+                    "informational_findings": [],
                 },
             )
 
-        total_flagged = sum(c["match_count"] for c in flagged_categories)
+        if flagged_sensitive_categories:
+            total_flagged = sum(
+                c["match_count"] for c in flagged_sensitive_categories
+            )
+            return ObjectiveCheckResult(
+                check_id="CHK-STR-01",
+                name="String Constant Pool Scan",
+                category="strings",
+                outcome="HEURISTIC",
+                status="FAIL",
+                what_it_proves=proves,
+                what_it_does_not_prove=does_not_prove,
+                observed_metric=f"{total_flagged} flagged pattern match(es) (sensitive credentials) detected across {total_strings} strings",
+                details={
+                    "total_strings_scanned": total_strings,
+                    "flagged_categories_count": len(all_categories),
+                    "flagged_categories": all_categories,
+                    "sensitive_findings": flagged_sensitive_categories,
+                    "informational_findings": informational_fixture_categories,
+                },
+                recommendation="Review hardcoded strings; avoid embedding API tokens or credentials in source code.",
+            )
+
+        # Only benign fixture markers detected: classify as informational finding
+        total_fixture = sum(
+            c["match_count"] for c in informational_fixture_categories
+        )
         return ObjectiveCheckResult(
             check_id="CHK-STR-01",
             name="String Constant Pool Scan",
             category="strings",
             outcome="HEURISTIC",
-            status="FAIL",
+            status="INFO",
             what_it_proves=proves,
             what_it_does_not_prove=does_not_prove,
-            observed_metric=f"{total_flagged} flagged pattern match(es) detected across {total_strings} strings",
+            observed_metric=f"{total_fixture} documented fixture test marker(s) detected across {total_strings} strings (informational)",
             details={
                 "total_strings_scanned": total_strings,
-                "flagged_categories_count": len(flagged_categories),
-                "flagged_categories": flagged_categories,
+                "flagged_categories_count": len(
+                    informational_fixture_categories
+                ),
+                "flagged_categories": informational_fixture_categories,
+                "sensitive_findings": [],
+                "informational_findings": informational_fixture_categories,
             },
-            recommendation="Review hardcoded strings; avoid embedding API tokens or credentials in source code.",
+            recommendation="Documented fixture test markers retained for verification testing. Not a sensitive credential finding.",
         )
 
     def check_cmp_01(self, dex_summary: ApkDexSummary | None) -> ObjectiveCheckResult:

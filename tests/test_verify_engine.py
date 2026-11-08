@@ -524,7 +524,9 @@ class TestStringPoolScan:
         assert raw_secret not in details_str
         assert "[REDACTED_SECRET_PATTERN]" in details_str
 
-    def test_str_01_fixture_token_detected_and_redacted(self, tmp_path: Path) -> None:
+    def test_str_01_fixture_token_detected_and_redacted(
+        self, tmp_path: Path
+    ) -> None:
         fixture_token = FIXTURE_TEST_STRINGS[0]
         apk = create_test_apk(
             tmp_path / "app.apk",
@@ -535,9 +537,115 @@ class TestStringPoolScan:
         engine = VerificationEngine()
         check = engine.check_str_01(dex_summary)
 
-        assert check.status == "FAIL"
+        # Benign fixture test markers are classified as INFO (not FAIL)
+        assert check.status == "INFO"
+        assert check.outcome == "HEURISTIC"
+        assert "documented fixture test marker(s)" in check.observed_metric
         details_str = json.dumps(check.details)
         assert "[REDACTED_FIXTURE_TOKEN]" in details_str
+
+    def test_str_01_both_sensitive_and_fixture_tokens_detected(
+        self, tmp_path: Path
+    ) -> None:
+        raw_secret = "ghp_123456789012345678901234567890123456"
+        fixture_token = FIXTURE_TEST_STRINGS[1]
+        apk = create_test_apk(
+            tmp_path / "app.apk",
+            classes=["a.a"],
+            strings=["label", fixture_token, raw_secret],
+        )
+        dex_summary = inspect_apk_dex(apk)
+        engine = VerificationEngine()
+        check = engine.check_str_01(dex_summary)
+
+        # Genuine secret present overrides fixture marker: status is FAIL
+        assert check.status == "FAIL"
+        details_str = json.dumps(check.details)
+        assert raw_secret not in details_str
+        assert "[REDACTED_SECRET_PATTERN]" in details_str
+        assert "[REDACTED_FIXTURE_TOKEN]" in details_str
+
+    def test_str_01_fixture_marker_allows_release_acceptance(
+        self, tmp_path: Path
+    ) -> None:
+        # Build report where build is real and CHK-STR-01 is INFO
+        from appshield.gradle import GradleBuildResult
+
+        apk = create_test_apk(
+            tmp_path / "app.apk",
+            classes=["a.a", "b.b"],
+            strings=["label", FIXTURE_TEST_STRINGS[0]],
+        )
+        mapping_file = tmp_path / "mapping.txt"
+        mapping_file.write_text("com.foo.Bar -> a.a:\n", encoding="utf-8")
+
+        build_res = GradleBuildResult(
+            success=True,
+            exit_code=0,
+            stdout="BUILD SUCCESSFUL",
+            stderr="",
+            duration_seconds=5.0,
+            command=["gradlew", "assembleRelease"],
+            is_simulated=False,
+            apk_path=apk,
+            mapping_file=mapping_file,
+            metadata={"build_id": "b-real-123"},
+        )
+        engine = VerificationEngine()
+        report = engine.run_all_checks(
+            apk_path=apk,
+            mapping_file=mapping_file,
+            build_result=build_res,
+            is_real_build=True,
+            signing_config=None,  # unsigned build
+        )
+        str_check = next(
+            c for c in report.objective_checks if c.check_id == "CHK-STR-01"
+        )
+        assert str_check.status == "INFO"
+        assert report.summary["failed"] == 0
+        assert report.is_verified_protected is True
+
+    def test_str_01_sensitive_token_blocks_release_acceptance(
+        self, tmp_path: Path
+    ) -> None:
+        from appshield.gradle import GradleBuildResult
+
+        raw_secret = "AKIAIOSFODNN7EXAMPLE"
+        apk = create_test_apk(
+            tmp_path / "app.apk",
+            classes=["a.a", "b.b"],
+            strings=["label", raw_secret],
+        )
+        mapping_file = tmp_path / "mapping.txt"
+        mapping_file.write_text("com.foo.Bar -> a.a:\n", encoding="utf-8")
+
+        build_res = GradleBuildResult(
+            success=True,
+            exit_code=0,
+            stdout="BUILD SUCCESSFUL",
+            stderr="",
+            duration_seconds=5.0,
+            command=["gradlew", "assembleRelease"],
+            is_simulated=False,
+            apk_path=apk,
+            mapping_file=mapping_file,
+            metadata={"build_id": "b-real-456"},
+        )
+        engine = VerificationEngine()
+        report = engine.run_all_checks(
+            apk_path=apk,
+            mapping_file=mapping_file,
+            build_result=build_res,
+            is_real_build=True,
+            signing_config=None,
+        )
+        str_check = next(
+            c for c in report.objective_checks if c.check_id == "CHK-STR-01"
+        )
+        assert str_check.status == "FAIL"
+        assert report.summary["failed"] >= 1
+        assert report.is_verified_protected is False
 
 
 class TestStructuralInspection:
