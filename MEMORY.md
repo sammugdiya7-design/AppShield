@@ -156,6 +156,23 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Compared post-installation manifests: confirmed all 22,887 existing files across `android-36`, `android-36.1`, and `build-tools\36.0.0` remain 100% bit-for-bit identical.
   - Executed `appshield doctor`: reported `All required prerequisites are met.` (Java 17, javac 17, JAVA_HOME, ANDROID_HOME, SDK 34, Build-Tools 34.0.0, zipalign, apksigner, AGP 8.2.2).
   - Maintained strict stop conditions: 0 Gradle builds executed, 0 APKs exported, 0 registry mutations, fixture 100% immutable.
+- [x] Completed First Genuine Android Protection Build & Empirical Verification (User-Authorized):
+  - Executed single authorized release protection run against `tests/fixtures/sample_android_gradle_project` with `--allow-network-dependencies`.
+  - Gradle `assembleRelease` completed successfully in 186.06s (exit code 0) using installed Gradle 8.2 and Temurin JDK 17.
+  - Successfully resolved and cached AGP 8.2.2 and build dependencies into `%USERPROFILE%\.gradle\caches\modules-2\files-2.1\com.android.tools.build\gradle\8.2.2`.
+  - Executed official Google R8 (version 8.2.47) bytecode shrinking and obfuscation.
+  - Emitted protected artifact: `dist/protected-first-validation/sample_android_gradle_project-release-protected.apk` (SHA-256: `b4b7ed6f884b8d481de2a5a1ad0fc6af3a355ed8fb580ce1beac3a694bf77e76`, size: 3,147 bytes).
+  - Retained R8 obfuscation mapping privately to `%USERPROFILE%\.appshield\mappings\sample_android_gradle_project\mapping.txt` (SHA-256: `ca9f3c0e8300789e87e6613987ad85bc2b51cdb897f0f0831f45955a2101ad95`).
+  - Empirical verification results:
+    * `CHK-BLD-01`: PASS (Real build completion, exit code 0)
+    * `CHK-APK-01`: PASS (Valid Android package archive, 1 DEX file)
+    * `CHK-SYM-01`: PASS (Dual-evidence verified: `IdentifiableSecretService -> a`, `PaymentSecurityValidator -> b`, `MainActivity` preserved)
+    * `CHK-SIG-01`: SKIPPED (Signing disabled by default; unsigned)
+    * `CHK-ALN-01`: PASS (4-byte zip alignment verified)
+    * `CHK-STR-01`: INFO (3 benign fixture test markers detected, 0 genuine secrets)
+    * `CHK-CMP-01`: INFO (Dalvik 037 structure verified)
+  - Release acceptance: `is_verified_protected: True`, `is_installation_ready: False` (unsigned).
+  - Source preservation: Cryptographic pre/post manifest verified 100% bit-for-bit identical (`git diff` is 0 bytes).
 
 ### Pending Tasks (Phase 5+)
 - [ ] Phase 5: iOS Protection Engine & Mach-O Sanitization (Plans 05-01 through 05-03)
