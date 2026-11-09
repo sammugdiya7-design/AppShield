@@ -125,3 +125,4 @@ if ($resolvedJava) {
 Write-Host ""
 Write-Host "Session is ready for AppShield execution. When this terminal window closes,"
 Write-Host "all process settings disappear automatically with zero system modification." -ForegroundColor DarkGray
+

@@ -56,6 +56,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 
 # --- Toolchain Metadata & Published Checksums ---
 
@@ -81,6 +82,7 @@ $Toolchain = @{
         Name            = "Gradle 8.2 Binary Distribution"
         ArchiveFilename = "gradle-8.2-bin.zip"
         DownloadUrl     = "https://services.gradle.org/distributions/gradle-8.2-bin.zip"
+        FallbackUrl     = "https://api.github.com/repos/gradle/gradle-distributions/releases/assets/127723076"
         ChecksumUrl     = "https://services.gradle.org/distributions/gradle-8.2-bin.zip.sha256"
         ExpectedSha256  = "38f66cd6eef217b4c35855bb11ea4e9fbc53594ccccb5fb82dfd317ef8c2c5a3"
         TargetDir       = $GradleTargetDir
@@ -338,7 +340,19 @@ try {
 
         $gradleZip = Join-Path $stagingRoot $gradleInfo.ArchiveFilename
         Write-Host "  Downloading Gradle 8.2 from: $($gradleInfo.DownloadUrl)"
-        Invoke-WebRequest -Uri $gradleInfo.DownloadUrl -OutFile $gradleZip -UseBasicParsing
+        try {
+            Invoke-WebRequest -Uri $gradleInfo.DownloadUrl -OutFile $gradleZip -UseBasicParsing
+        }
+        catch {
+            Write-WarnNotice "Primary download from $($gradleInfo.DownloadUrl) failed: $($_.Exception.Message)"
+            if ($gradleInfo.FallbackUrl) {
+                Write-Host "  Retrying via official GitHub release asset endpoint: $($gradleInfo.FallbackUrl)..."
+                Invoke-WebRequest -Uri $gradleInfo.FallbackUrl -Headers @{ "Accept" = "application/octet-stream"; "User-Agent" = "AppShield-Setup" } -OutFile $gradleZip -UseBasicParsing
+            }
+            else {
+                throw
+            }
+        }
 
         if (-not (Verify-FileChecksum -FilePath $gradleZip -ExpectedHash $gradleInfo.ExpectedSha256)) {
             Remove-Item $gradleZip -Force -ErrorAction SilentlyContinue
