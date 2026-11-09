@@ -17,12 +17,11 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
 import secrets
 import shutil
 import subprocess  # nosec: B404
 import sys
-
+from pathlib import Path
 
 EXPECTED_ORIGINAL_SHA256 = (
     "b4b7ed6f884b8d481de2a5a1ad0fc6af3a355ed8fb580ce1beac3a694bf77e76"
