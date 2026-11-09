@@ -141,6 +141,13 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Release Acceptance Gates Audit: Formally verified all 9 gating rules: genuine secrets block export (`CHK-STR-01: FAIL`), fixture markers remain informational, missing/invalid APKs fail, DEX symbol obfuscation is empirically verified in bytecode, 4-byte ZIP alignment passes, signature verification is mandatory when signing is enabled, skipped signing is permitted only when signing is explicitly disabled, simulated builds are blocked from export, and source immutability is cryptographically enforced before export.
   - PowerShell Script Safety: Hardened `download-toolchain.ps1`, `configure-user-environment.ps1`, and `restore-user-environment.ps1` by replacing misleading `SupportsShouldProcess = $true` with `[CmdletBinding()]` and documenting `-Preview` as the dry-run mechanism. Implemented transactional staging replacement with automatic rollback on error in `download-toolchain.ps1`, enforced `-Force` before replacing incomplete directories, guaranteed collision-free backup naming in `configure-user-environment.ps1`, and reconfirmed Machine PATH is strictly read-only.
   - Test Suite Expansion: Added comprehensive regression tests in `tests/test_integration_fixture.py`, `tests/test_doctor.py`, `tests/test_gradle.py`, `tests/test_verify_engine.py`, and `tests/test_cli.py` (total 301 tests across suite) passing with 93% code coverage and 0 lint/type/security issues.
+- [x] Completed Toolchain Stage A Provisioning (User-Authorized):
+  - Downloaded, verified official SHA-256 (`98518ecf554465057ee5509462631deeee374bc368c12a411d225cd29381f84b`), and transactionally installed Eclipse Temurin OpenJDK 17 LTS (17.0.21+9) at `%USERPROFILE%\.jdk\jdk-17.0.21+9`.
+  - Downloaded, verified official SHA-256 (`38f66cd6eef217b4c35855bb11ea4e9fbc53594ccccb5fb82dfd317ef8c2c5a3`), and transactionally installed Gradle 8.2 at `%USERPROFILE%\.gradle\gradle-8.2`.
+  - Confirmed Android command-line tools already installed and preserved at `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest`.
+  - Created process-level launcher `scripts/setup/enter-appshield-env.ps1` providing complete session isolation; guaranteed zero mutation of Machine or User Windows registry environment variables.
+  - Verified `java -version` (Temurin 17.0.21+9), `javac -version` (17.0.21), and `gradle --version` (8.2) in isolated session while preserving host Oracle Java 8 on Machine PATH.
+  - Preserved Android SDK Platform 34 / Build-Tools 34.0.0 uninstalled and SDK licenses unaccepted, awaiting Stage B/C authorization. Fixture remained 100% untouched (0 bytes diff).
 
 ### Pending Tasks (Phase 5+)
 - [ ] Phase 5: iOS Protection Engine & Mach-O Sanitization (Plans 05-01 through 05-03)
