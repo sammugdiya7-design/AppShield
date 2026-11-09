@@ -148,6 +148,14 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Created process-level launcher `scripts/setup/enter-appshield-env.ps1` providing complete session isolation; guaranteed zero mutation of Machine or User Windows registry environment variables.
   - Verified `java -version` (Temurin 17.0.21+9), `javac -version` (17.0.21), and `gradle --version` (8.2) in isolated session while preserving host Oracle Java 8 on Machine PATH.
   - Preserved Android SDK Platform 34 / Build-Tools 34.0.0 uninstalled and SDK licenses unaccepted, awaiting Stage B/C authorization. Fixture remained 100% untouched (0 bytes diff).
+- [x] Completed Toolchain Stage B Provisioning (User-Authorized):
+  - Confirmed existing `android-sdk-license` (`24333f8a63b6825ea9c5514f83c2829b004d1fee`) covered both `platforms;android-34` and `build-tools;34.0.0` without requiring any additional licenses.
+  - Recorded pre-installation cryptographic SHA-256 manifests across 22,887 files in existing `platforms\android-36`, `platforms\android-36.1`, and `build-tools\36.0.0`.
+  - Installed `platforms;android-34` (revision 3) and `build-tools;34.0.0` via `sdkmanager.bat` in isolated process session.
+  - Verified `platforms\android-34\android.jar`, `build-tools\34.0.0\zipalign.exe`, and `build-tools\34.0.0\apksigner.bat`.
+  - Compared post-installation manifests: confirmed all 22,887 existing files across `android-36`, `android-36.1`, and `build-tools\36.0.0` remain 100% bit-for-bit identical.
+  - Executed `appshield doctor`: reported `All required prerequisites are met.` (Java 17, javac 17, JAVA_HOME, ANDROID_HOME, SDK 34, Build-Tools 34.0.0, zipalign, apksigner, AGP 8.2.2).
+  - Maintained strict stop conditions: 0 Gradle builds executed, 0 APKs exported, 0 registry mutations, fixture 100% immutable.
 
 ### Pending Tasks (Phase 5+)
 - [ ] Phase 5: iOS Protection Engine & Mach-O Sanitization (Plans 05-01 through 05-03)
