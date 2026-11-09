@@ -173,6 +173,13 @@ A simple, local, cross-platform application code-protection CLI for developers t
     * `CHK-CMP-01`: INFO (Dalvik 037 structure verified)
   - Release acceptance: `is_verified_protected: True`, `is_installation_ready: False` (unsigned).
   - Source preservation: Cryptographic pre/post manifest verified 100% bit-for-bit identical (`git diff` is 0 bytes).
+- [x] Completed Disposable Test Signing & Verification (User-Authorized):
+  - Created 2048-bit RSA disposable test keystore at `%USERPROFILE%\.appshield\keystores\disposable_test.jks` with alias `appshield_test` and certificate `CN=AppShield Disposable Test, OU=Testing, O=AppShield, C=US`.
+  - Used fresh high-entropy ephemeral test password in process memory passed via `keytool -storepass:env` and `apksigner --ks-pass env:`. Cleared from environment immediately after signing.
+  - Signed isolated copy of protected release APK into `dist/test-signed/sample_android_gradle_project-release-test-signed.apk` (size: 12,794 bytes, SHA-256: `c374b2630e6882aac0aec5078e054bd4b909d596cd38cb3649b04566bb3198c0`).
+  - Verified original unsigned APK remained 100% bit-for-bit identical (SHA-256 unchanged: `b4b7ed6f884b8d481de2a5a1ad0fc6af3a355ed8fb580ce1beac3a694bf77e76`).
+  - Verified signed APK signature (`apksigner verify --verbose`): `Verifies` (v2: `true`, v3: `true`, signer: `CN=AppShield Disposable Test...`).
+  - Verified 4-byte ZIP alignment on final signed APK (`zipalign -c -v 4` passed with code 0).
 
 ### Pending Tasks (Phase 5+)
 - [ ] Phase 5: iOS Protection Engine & Mach-O Sanitization (Plans 05-01 through 05-03)
