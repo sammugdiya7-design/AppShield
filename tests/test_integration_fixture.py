@@ -574,6 +574,7 @@ def test_setup_scripts_safety() -> None:
     scripts_dir = repo_root / "scripts" / "setup"
     script_files = [
         scripts_dir / "download-toolchain.ps1",
+        scripts_dir / "enter-appshield-env.ps1",
         scripts_dir / "configure-user-environment.ps1",
         scripts_dir / "restore-user-environment.ps1",
     ]
@@ -592,6 +593,12 @@ def test_setup_scripts_safety() -> None:
         assert "-Preview" in script_text, (
             f"Script {sf.name} must implement -Preview dry-run mechanism"
         )
+
+    # enter-appshield-env.ps1 operates strictly at the process session level and must NEVER mutate the registry
+    enter_text = (scripts_dir / "enter-appshield-env.ps1").read_text(encoding="utf-8")
+    assert "SetEnvironmentVariable" not in enter_text, (
+        "enter-appshield-env.ps1 must never call SetEnvironmentVariable (it must be 100% process-level isolated)"
+    )
 
     # configure & restore scripts must NEVER mutate Machine environment
     for sf in [
