@@ -65,6 +65,7 @@ $Toolchain = @{
         ArchiveFilename = "OpenJDK17U-jdk_x64_windows_hotspot_17.0.21_9.zip"
         DownloadUrl     = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.21%2B9/OpenJDK17U-jdk_x64_windows_hotspot_17.0.21_9.zip"
         ChecksumUrl     = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.21%2B9/OpenJDK17U-jdk_x64_windows_hotspot_17.0.21_9.zip.sha256.txt"
+        ExpectedSha256  = "98518ecf554465057ee5509462631deeee374bc368c12a411d225cd29381f84b"
         TargetDir       = $JdkTargetDir
         ExpectedExec    = @("bin\java.exe", "bin\javac.exe")
     }
@@ -240,9 +241,15 @@ try {
         Write-Host "  Downloading JDK from: $($jdkInfo.DownloadUrl)"
         Invoke-WebRequest -Uri $jdkInfo.DownloadUrl -OutFile $jdkZip -UseBasicParsing
 
-        Write-Host "  Retrieving official Adoptium SHA-256 checksum..."
-        $jdkShaContent = (Invoke-RestMethod -Uri $jdkInfo.ChecksumUrl -UseBasicParsing).Trim()
-        $expectedJdkSha = ($jdkShaContent -split "\s+")[0].Trim().ToLowerInvariant()
+        if ($jdkInfo.ExpectedSha256) {
+            $expectedJdkSha = $jdkInfo.ExpectedSha256.Trim().ToLowerInvariant()
+            Write-Host "  Using verified pinned Adoptium SHA-256 checksum: $expectedJdkSha"
+        }
+        else {
+            Write-Host "  Retrieving official Adoptium SHA-256 checksum..."
+            $jdkShaContent = (Invoke-RestMethod -Uri $jdkInfo.ChecksumUrl -UseBasicParsing).Trim()
+            $expectedJdkSha = ($jdkShaContent -split "\s+")[0].Trim().ToLowerInvariant()
+        }
 
         if (-not (Verify-FileChecksum -FilePath $jdkZip -ExpectedHash $expectedJdkSha)) {
             Remove-Item $jdkZip -Force -ErrorAction SilentlyContinue
