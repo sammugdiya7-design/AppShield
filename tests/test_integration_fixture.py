@@ -624,6 +624,9 @@ def test_setup_scripts_safety() -> None:
     assert "-Force" in dl_text
     assert "incomplete or invalid" in dl_text
     assert ".bak." in dl_text
+    # Success guidance must recommend session isolation via enter-appshield-env.ps1
+    assert "enter-appshield-env.ps1" in dl_text
+    assert "separate authorization" in dl_text
 
     # configure script must implement collision-free backup naming
     cfg_text = (scripts_dir / "configure-user-environment.ps1").read_text(

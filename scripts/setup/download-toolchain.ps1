@@ -373,13 +373,16 @@ try {
 
     Write-Step "Toolchain Download & Staging Complete (Phase 1 Complete)"
     Write-Host ""
-    Write-Host "NEXT REQUIRED STEP: Phase 2 - User Environment Configuration" -ForegroundColor Cyan
-    Write-Host "  Run configure-user-environment.ps1 to configure JAVA_HOME, ANDROID_HOME, and User PATH."
-    Write-Host "  (This ensures OpenJDK 17 is on PATH before executing sdkmanager in Phase 3):"
-    Write-Host "    & scripts/setup/configure-user-environment.ps1" -ForegroundColor Yellow
+    Write-Host "NEXT REQUIRED STEP: Phase 2 - Activate Isolated Session Environment" -ForegroundColor Cyan
+    Write-Host "  Dot-source enter-appshield-env.ps1 into your PowerShell session to set process-level"
+    Write-Host "  JAVA_HOME and prepend toolchain binaries to process PATH with zero registry mutation:"
+    Write-Host "    . scripts/setup/enter-appshield-env.ps1" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  (Optional: persistent User registry configuration via configure-user-environment.ps1" -ForegroundColor DarkGray
+    Write-Host "   is available for developers desiring persistent variables, but requires separate authorization.)" -ForegroundColor DarkGray
     Write-Host ""
     Write-WarnNotice "Phase 3 (Post-Configuration): Android SDK Licenses & Component Provisioning"
-    Write-Host "  After Phase 2 has configured JAVA_HOME, review and accept licenses interactively:"
+    Write-Host "  After entering the isolated session environment, review licenses interactively:"
     Write-Host "    & `"$($sdkInfo.TargetDir)\cmdline-tools\latest\bin\sdkmanager.bat`" --licenses" -ForegroundColor Cyan
     Write-Host "  Then install required compile SDK platform 34 and build-tools 34.0.0:"
     Write-Host "    & `"$($sdkInfo.TargetDir)\cmdline-tools\latest\bin\sdkmanager.bat`" `"platforms;android-34`" `"build-tools;34.0.0`"" -ForegroundColor Cyan
