@@ -23,8 +23,8 @@ See: `MEMORY.md` (root operational memory) and `.planning/PROJECT.md` (updated 2
 
 Phase: 4 of 7 (Android Protection Pipeline & Verification Engine - Release Remediated)  
 Plan: Plan 04-04 Complete & Remediated (End-to-End CLI Integration, Automated Test Matrix, CI & Release Architecture)  
-Status: Phase 4 completed, audited, and release-remediated: official MIT license configured (Copyright (c) 2026 Sam Jain), GitHub Actions CI configured, README modernized with empirical evidence, root ARCHITECTURE.md authored, pyproject.toml modernized with dev extras (`build>=1.0`), planning docs synchronized; 301 passing tests, 93% coverage, 0 lint/type/security issues, clean wheel/sdist packaging; ready for public release  
-Last activity: 2026-11-10 — Resolved copyright holder name in root LICENSE to `Copyright (c) 2026 Sam Jain` while preserving standard MIT text. Verified LICENSE inclusion and copyright notice in both source distribution and wheel. Confirmed license = "MIT" in pyproject.toml. All 301 tests pass with 93% coverage; ruff, mypy, bandit, and uv build 100% clean.
+Status: Phase 4 completed, audited, pushed, and CI-remediated: resolved Ruff 0.17.4 SIM102 lint error in gradle.py, updated public repository clone URL in README, updated pyproject.toml author metadata to Sam Jain with GitHub noreply email, clarified platform matrix (Android v1 implemented; iOS/Windows future roadmap); 301 passing tests, 93% coverage, 0 lint/type/security issues, clean wheel/sdist packaging; ready for re-push  
+Last activity: 2026-11-10 — Investigated GitHub Actions CI failure on run 42864829896. Identified root cause: unpinned Ruff 0.17.4 on PyPI flagged SIM102 in `appshield/gradle.py:221` (nested if under elif). Fixed code without disabling rules. Upgraded local Ruff to 0.17.4 and confirmed clean linting and formatting. Corrected README clone URL to `https://github.com/sammugdiya7-design/AppShield.git`. Updated pyproject.toml author metadata to Sam Jain with GitHub noreply email. Rebuilt distribution packages and verified all quality gates.
 
 Progress: [████████░░] 75%
 
@@ -66,6 +66,7 @@ Progress: [████████░░] 75%
 - [Release Remediation]: Resolved all P0 and P1 blockers identified in the Android v1 Release Readiness Audit. Created standard MIT `LICENSE` with explicit copyright holder placeholder (`[COPYRIGHT HOLDER - RESOLVE BEFORE PUBLIC RELEASE]`). Created `.github/workflows/ci.yml` running lint, format, typecheck, security audit, test suite with coverage, and packaging across Python 3.10, 3.11, and 3.12. Modernized `README.md` to reflect verified Android v1 implementation, documenting exact flags, empirical validation (AGP 8.2.2, R8 8.2.47, Android API 37 emulator launch), and explicitly disclaiming physical device testing. Authored root `ARCHITECTURE.md` covering the 9 required architectural domains and explicitly differentiating filesystem staging isolation from OS-level kernel sandboxing. Updated `pyproject.toml` license field to `license = "MIT"` to eliminate setuptools deprecation warnings during packaging. Synchronized all planning documents (`PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `MEMORY.md`, `STATE.md`). Verified full quality gates: 301 passed tests, 93% coverage, 0 ruff errors, 0 mypy errors, 0 bandit findings, clean wheel/sdist packaging.
 - [CI Dependency Hardening]: Verified that `build` was missing from `[project.optional-dependencies] dev` despite being invoked by `python -m build` in CI. Added `build>=1.0` to `dev` in `pyproject.toml` and updated `uv.lock`. Streamlined `.github/workflows/ci.yml` dependency step to declarative `pip install -e ".[dev]"`. Confirmed `python -m build` succeeds locally without warnings. All 301 tests pass with 93% coverage.
 - [License Copyright Resolution]: Resolved root `LICENSE` copyright holder to `Copyright (c) 2026 Sam Jain` while strictly preserving the canonical 21-line MIT license text, permissions, and disclaimer. Confirmed `license = "MIT"` in `pyproject.toml`. Verified that `LICENSE` is embedded in both sdist and wheel distributions. All quality gates verified.
+- [CI Ruff 0.17.4 Resolution & Metadata Polish]: Diagnosed GitHub Actions CI failure on run 42864829896: unpinned pip installation in CI pulled Ruff 0.17.4, triggering SIM102 on nested if statement in `appshield/gradle.py:221`. Fixed by combining conditions with `and` instead of disabling rules. Upgraded local Ruff to 0.17.4 to match CI. Updated README clone URL to `https://github.com/sammugdiya7-design/AppShield.git`. Updated `pyproject.toml` author metadata to `Sam Jain <244658121+sammugdiya7-design@users.noreply.github.com>`. Added explicit platform matrix in README distinguishing implemented Android v1 from planned iOS/Windows milestones.
 
 ### Pending Todos
 
@@ -79,6 +80,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-10 19:05 IST  
-Stopped at: Completed copyright holder update to `Sam Jain` in `LICENSE`, verified sdist and wheel inclusion, updated planning and memory documentation, and passed all quality gates. Ready for public release.  
+Last session: 2026-11-10 23:20 IST  
+Stopped at: Completed post-push CI investigation and resolution: resolved SIM102 in gradle.py under Ruff 0.17.4, updated README clone URL and platform support matrix, updated pyproject.toml author metadata, and verified all quality gates. Committed locally; awaiting authorization to push.  
 Resume file: None

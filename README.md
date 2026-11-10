@@ -1,8 +1,21 @@
 # AppShield
 
-A lightweight, local-only, cross-platform application code-protection CLI for developers targeting Android, iOS, and Windows.
+A lightweight, local-only application code-protection CLI for developers targeting Android (with iOS and Windows support planned in future milestones).
 
-AppShield automates mobile application hardening workflows by orchestrating existing, trusted protection engines within isolated staging workspaces while rigorously preserving original source trees, verifying binary protection outcomes, and guaranteeing zero remote telemetry or credential leakage.
+AppShield automates application hardening workflows by orchestrating existing, trusted protection engines within isolated staging workspaces while rigorously preserving original source trees, verifying binary protection outcomes, and guaranteeing zero remote telemetry or credential leakage.
+
+---
+
+## Platform Support Matrix
+
+| Platform | Target Projects / Binaries | Implementation Status | Validation Level |
+|---|---|---|---|
+| **Android (v1)** | Android Gradle Projects (`gradlew` + AGP + R8) | **Implemented & Functional** | **Empirically Validated** (Release build, DEX renaming, Signing, API 37 Runtime Launch) |
+| **iOS** | Xcode Projects / Mach-O Binaries | *Future Platform Support (Planned)* | Not implemented; non-Android targets are safely rejected |
+| **Windows** | .NET Assemblies / PE Binaries | *Future Platform Support (Planned)* | Not implemented; non-Android targets are safely rejected |
+
+> [!NOTE]
+> **Android Only in v1**: AppShield currently implements the Android protection pipeline exclusively. Adapters for iOS and Windows represent future roadmap milestones and are not yet functional. Any configuration specifying an unsupported platform is rejected at configuration validation time.
 
 ---
 
@@ -23,7 +36,7 @@ AppShield automates mobile application hardening workflows by orchestrating exis
 - **Supported Project Type**: Android Gradle Projects (`gradlew` + Android Gradle Plugin) configured with release minification (`minifyEnabled true`) and ProGuard/R8 rules.
 - **Unsupported in v1 MVP**: Standalone precompiled APKs without source Gradle project context are explicitly rejected. Standalone R8 on arbitrary APKs lacks platform dependency jars, compilation classpath, and resource ID tables, leading to runtime failures.
 
-### Tested Toolchain Versions
+### Tested Toolchain Versions (Android v1)
 - **Java Runtime**: OpenJDK 17 LTS (tested: Eclipse Temurin JDK `17.0.21+9`).
 - **Gradle**: Gradle 8.2 or newer (tested: Gradle `8.2`).
 - **Android Gradle Plugin (AGP)**: AGP 8.2.0 to 8.2.2+ (tested: AGP `8.2.2`).
@@ -38,7 +51,7 @@ AppShield automates mobile application hardening workflows by orchestrating exis
 ### Using `uv` (Recommended)
 ```bash
 # Clone the repository
-git clone https://github.com/appshield/appshield.git
+git clone https://github.com/sammugdiya7-design/AppShield.git
 cd appshield
 
 # Install in editable mode

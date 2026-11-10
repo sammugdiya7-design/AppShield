@@ -218,11 +218,12 @@ def build_safe_env(
             safe_env[key] = value
         elif key in allowed_sensitive:
             safe_env[key] = value
-        elif not SENSITIVE_VAR_PATTERN.search(key):
+        elif not SENSITIVE_VAR_PATTERN.search(key) and key_upper.startswith(
+            ("GRADLE_", "JAVA_", "ANDROID_")
+        ):
             # Also keep non-sensitive standard variables that might be needed
             # (e.g. CI, TERM, etc.)
-            if key_upper.startswith(("GRADLE_", "JAVA_", "ANDROID_")):
-                safe_env[key] = value
+            safe_env[key] = value
 
     if extra_env:
         for k, v in extra_env.items():

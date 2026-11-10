@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A simple, local, cross-platform application code-protection CLI"
 readme = "README.md"
 authors = [
-    { name = "AppShield Developer", email = "appshield@local.dev" }
+    { name = "Sam Jain", email = "244658121+sammugdiya7-design@users.noreply.github.com" }
 ]
 license = "MIT"
 requires-python = ">=3.10"
