@@ -23,6 +23,7 @@ dev = [
     "mypy>=1.0",
     "ruff>=0.1",
     "bandit>=1.7",
+    "build>=1.0",
 ]
 
 [project.scripts]
