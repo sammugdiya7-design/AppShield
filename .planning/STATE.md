@@ -23,8 +23,8 @@ See: `MEMORY.md` (root operational memory) and `.planning/PROJECT.md` (updated 2
 
 Phase: 4 of 7 (Android Protection Pipeline & Verification Engine - Release Remediated)  
 Plan: Plan 04-04 Complete & Remediated (End-to-End CLI Integration, Automated Test Matrix, CI & Release Architecture)  
-Status: Phase 4 completed, audited, and release-remediated: MIT license added (with marked placeholder), GitHub Actions CI configured, README modernized with empirical evidence, root ARCHITECTURE.md authored, pyproject.toml modernized, planning docs synchronized; 301 passing tests, 93% coverage, 0 lint/type/security issues, clean wheel/sdist packaging; ready for user review  
-Last activity: 2026-11-10 — Executed Android v1 Release Remediation resolving all P0 and P1 audit blockers: created MIT LICENSE (with explicit placeholder for copyright holder), created GitHub Actions CI (.github/workflows/ci.yml with Python 3.10-3.12 matrix, ruff, mypy, bandit, pytest, build), modernized README.md with precise empirical claims, authored root ARCHITECTURE.md distinguishing ephemeral staging from OS kernel sandboxing, updated pyproject.toml license declaration to modern SPDX format, and synchronized all planning artifacts. All 301 tests pass with 93% coverage.
+Status: Phase 4 completed, audited, and release-remediated: official MIT license configured (Copyright (c) 2026 Sam Jain), GitHub Actions CI configured, README modernized with empirical evidence, root ARCHITECTURE.md authored, pyproject.toml modernized with dev extras (`build>=1.0`), planning docs synchronized; 301 passing tests, 93% coverage, 0 lint/type/security issues, clean wheel/sdist packaging; ready for public release  
+Last activity: 2026-11-10 — Resolved copyright holder name in root LICENSE to `Copyright (c) 2026 Sam Jain` while preserving standard MIT text. Verified LICENSE inclusion and copyright notice in both source distribution and wheel. Confirmed license = "MIT" in pyproject.toml. All 301 tests pass with 93% coverage; ruff, mypy, bandit, and uv build 100% clean.
 
 Progress: [████████░░] 75%
 
@@ -65,6 +65,7 @@ Progress: [████████░░] 75%
 - [Phase 4 Runtime Execution Validation]: Executed single authorized runtime test on emulator-5554 (API 37, x86_64). Verified pre-install integrity (SHA-256: `c374b263...`, v2/v3 signatures). Streamed install completed with Success. Launched MainActivity via `am start -W` (status `ok`, TotalTime 988ms, PID 7478). Process table verified process alive (UID `u0_a235`), dumpsys window verified `mCurrentFocus` on MainActivity. Logcat scan confirmed 0 fatal crashes and captured `System.out` marker proving obfuscated classes (`IdentifiableSecretService` -> `a`, `PaymentSecurityValidator` -> `b`) executed properly without runtime or reflection bugs. Kept application installed without uninstallation per instructions.
 - [Release Remediation]: Resolved all P0 and P1 blockers identified in the Android v1 Release Readiness Audit. Created standard MIT `LICENSE` with explicit copyright holder placeholder (`[COPYRIGHT HOLDER - RESOLVE BEFORE PUBLIC RELEASE]`). Created `.github/workflows/ci.yml` running lint, format, typecheck, security audit, test suite with coverage, and packaging across Python 3.10, 3.11, and 3.12. Modernized `README.md` to reflect verified Android v1 implementation, documenting exact flags, empirical validation (AGP 8.2.2, R8 8.2.47, Android API 37 emulator launch), and explicitly disclaiming physical device testing. Authored root `ARCHITECTURE.md` covering the 9 required architectural domains and explicitly differentiating filesystem staging isolation from OS-level kernel sandboxing. Updated `pyproject.toml` license field to `license = "MIT"` to eliminate setuptools deprecation warnings during packaging. Synchronized all planning documents (`PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `MEMORY.md`, `STATE.md`). Verified full quality gates: 301 passed tests, 93% coverage, 0 ruff errors, 0 mypy errors, 0 bandit findings, clean wheel/sdist packaging.
 - [CI Dependency Hardening]: Verified that `build` was missing from `[project.optional-dependencies] dev` despite being invoked by `python -m build` in CI. Added `build>=1.0` to `dev` in `pyproject.toml` and updated `uv.lock`. Streamlined `.github/workflows/ci.yml` dependency step to declarative `pip install -e ".[dev]"`. Confirmed `python -m build` succeeds locally without warnings. All 301 tests pass with 93% coverage.
+- [License Copyright Resolution]: Resolved root `LICENSE` copyright holder to `Copyright (c) 2026 Sam Jain` while strictly preserving the canonical 21-line MIT license text, permissions, and disclaimer. Confirmed `license = "MIT"` in `pyproject.toml`. Verified that `LICENSE` is embedded in both sdist and wheel distributions. All quality gates verified.
 
 ### Pending Todos
 
@@ -78,6 +79,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-10 18:35 IST  
-Stopped at: Completed final targeted review: fixed CI `build` dependency declaration, confirmed workflow steps, verified Python matrix compatibility, checked repo identity, and verified clean quality gates. Awaiting final user approval for public publication.  
+Last session: 2026-11-10 19:05 IST  
+Stopped at: Completed copyright holder update to `Sam Jain` in `LICENSE`, verified sdist and wheel inclusion, updated planning and memory documentation, and passed all quality gates. Ready for public release.  
 Resume file: None
