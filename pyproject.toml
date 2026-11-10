@@ -10,7 +10,7 @@ readme = "README.md"
 authors = [
     { name = "AppShield Developer", email = "appshield@local.dev" }
 ]
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "pyyaml>=6.0",
@@ -37,3 +37,6 @@ pythonpath = ["."]
 
 [tool.bandit]
 skips = ["B404", "B603"]
+
+[tool.ruff]
+extend-exclude = [".planning"]

@@ -17,14 +17,14 @@ progress:
 See: `MEMORY.md` (root operational memory) and `.planning/PROJECT.md` (updated 2026-10-24)
 
 **Core value:** The developer's original source code and signing credentials remain completely untouched and local, while production application binaries undergo verifiable, reproducible multi-layer code protection with honest, auditable security reporting.  
-**Current focus:** Phase 4: Android Protection Pipeline & Verification Engine Complete (Ready for Phase 5)
+**Current focus:** Android v1 Release Remediation Complete (All P0 & P1 Blockers Resolved)
 
 ## Current Position
 
-Phase: 4 of 7 (Android Protection Pipeline & Verification Engine)  
-Plan: Plan 04-04 Complete (End-to-End CLI Integration, Automated Test Matrix & Security Validation)  
-Status: Phase 4 completed and verified end-to-end: real build, R8 obfuscation, test signing, and live runtime execution validated on Android emulator-5554 (API 37) (1 live build validated, 1 test-signed release verified, 1 live runtime execution verified; 301 passing tests, 93% coverage, 0 lint/type/security issues); ready for user review before Phase 5  
-Last activity: 2026-11-10 — Executed authorized on-device runtime validation of test-signed protected APK on Android emulator-5554 (API 37, x86_64). Installed via `adb install` (Success), launched `MainActivity` via `am start -W` (COLD, 988ms, PID: 7478). Process alive, window focused (`mCurrentFocus`), 0 runtime crashes, 0 ClassNotFound/NoSuchMethod exceptions. Captured `System.out: AppShield Sample Initialized: 56`, proving successful empirical runtime execution of R8-obfuscated classes.
+Phase: 4 of 7 (Android Protection Pipeline & Verification Engine - Release Remediated)  
+Plan: Plan 04-04 Complete & Remediated (End-to-End CLI Integration, Automated Test Matrix, CI & Release Architecture)  
+Status: Phase 4 completed, audited, and release-remediated: MIT license added (with marked placeholder), GitHub Actions CI configured, README modernized with empirical evidence, root ARCHITECTURE.md authored, pyproject.toml modernized, planning docs synchronized; 301 passing tests, 93% coverage, 0 lint/type/security issues, clean wheel/sdist packaging; ready for user review  
+Last activity: 2026-11-10 — Executed Android v1 Release Remediation resolving all P0 and P1 audit blockers: created MIT LICENSE (with explicit placeholder for copyright holder), created GitHub Actions CI (.github/workflows/ci.yml with Python 3.10-3.12 matrix, ruff, mypy, bandit, pytest, build), modernized README.md with precise empirical claims, authored root ARCHITECTURE.md distinguishing ephemeral staging from OS kernel sandboxing, updated pyproject.toml license declaration to modern SPDX format, and synchronized all planning artifacts. All 301 tests pass with 93% coverage.
 
 Progress: [████████░░] 75%
 
@@ -63,6 +63,7 @@ Progress: [████████░░] 75%
 - [Phase 4 First Genuine Protection Build]: Executed single authorized release protection run against `tests/fixtures/sample_android_gradle_project` with `--allow-network-dependencies`. Gradle `assembleRelease` completed in 186.06s (exit code 0) using installed Gradle 8.2 and Temurin JDK 17. Successfully cached AGP 8.2.2 dependencies into user Gradle cache. Real Google R8 8.2.47 obfuscation verified in compiled DEX bytecode (`IdentifiableSecretService -> a`, `PaymentSecurityValidator -> b`, `MainActivity` preserved entry point). Output APK exported to `dist/protected-first-validation/sample_android_gradle_project-release-protected.apk` (SHA-256: `b4b7ed6f884b8d481de2a5a1ad0fc6af3a355ed8fb580ce1beac3a694bf77e76`, size: 3,147 bytes). Private R8 mapping retained to `%USERPROFILE%\.appshield\mappings\sample_android_gradle_project\mapping.txt` (SHA-256: `ca9f3c0e8300789e87e6613987ad85bc2b51cdb897f0f0831f45955a2101ad95`). All 7 empirical verification checks executed: CHK-BLD-01 PASS, CHK-APK-01 PASS, CHK-SYM-01 PASS (dual-evidence verified), CHK-SIG-01 SKIPPED (unsigned by default), CHK-ALN-01 PASS (4-byte zip alignment), CHK-STR-01 INFO (3 benign test markers, 0 secrets), CHK-CMP-01 INFO (Dalvik 037 structure). Release acceptance: `is_verified_protected: True`, `is_installation_ready: False` (unsigned artifact). Source preservation: `git diff` == 0 bytes.
 - [Phase 4 Disposable Test Signing]: Generated ephemeral 2048-bit RSA test keystore outside repo at `%USERPROFILE%\.appshield\keystores\disposable_test.jks` with certificate `CN=AppShield Disposable Test, OU=Testing, O=AppShield, C=US`. Handled credentials in process memory via `keytool -storepass:env` and `apksigner --ks-pass env:`, clearing variables immediately. Signed separate copy to `dist/test-signed/sample_android_gradle_project-release-test-signed.apk` (12,794 B, SHA-256: `c374b2630e6882aac0aec5078e054bd4b909d596cd38cb3649b04566bb3198c0`). Verified v2/v3 signatures, 4-byte ZIP alignment, and confirmed original unsigned APK remained 100% bit-for-bit unchanged.
 - [Phase 4 Runtime Execution Validation]: Executed single authorized runtime test on emulator-5554 (API 37, x86_64). Verified pre-install integrity (SHA-256: `c374b263...`, v2/v3 signatures). Streamed install completed with Success. Launched MainActivity via `am start -W` (status `ok`, TotalTime 988ms, PID 7478). Process table verified process alive (UID `u0_a235`), dumpsys window verified `mCurrentFocus` on MainActivity. Logcat scan confirmed 0 fatal crashes and captured `System.out` marker proving obfuscated classes (`IdentifiableSecretService` -> `a`, `PaymentSecurityValidator` -> `b`) executed properly without runtime or reflection bugs. Kept application installed without uninstallation per instructions.
+- [Release Remediation]: Resolved all P0 and P1 blockers identified in the Android v1 Release Readiness Audit. Created standard MIT `LICENSE` with explicit copyright holder placeholder (`[COPYRIGHT HOLDER - RESOLVE BEFORE PUBLIC RELEASE]`). Created `.github/workflows/ci.yml` running lint, format, typecheck, security audit, test suite with coverage, and packaging across Python 3.10, 3.11, and 3.12. Modernized `README.md` to reflect verified Android v1 implementation, documenting exact flags, empirical validation (AGP 8.2.2, R8 8.2.47, Android API 37 emulator launch), and explicitly disclaiming physical device testing. Authored root `ARCHITECTURE.md` covering the 9 required architectural domains and explicitly differentiating filesystem staging isolation from OS-level kernel sandboxing. Updated `pyproject.toml` license field to `license = "MIT"` to eliminate setuptools deprecation warnings during packaging. Synchronized all planning documents (`PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `MEMORY.md`, `STATE.md`). Verified full quality gates: 301 passed tests, 93% coverage, 0 ruff errors, 0 mypy errors, 0 bandit findings, clean wheel/sdist packaging.
 
 ### Pending Todos
 
@@ -76,6 +77,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-10 11:50 IST  
-Stopped at: Completed Android Runtime Installation & Execution Validation on emulator-5554 (API 37). Phase 4 fully verified end-to-end. Awaiting user review before Phase 5.  
+Last session: 2026-11-10 16:10 IST  
+Stopped at: Completed Android v1 Release Remediation. All P0 and P1 blockers resolved. Ready for user review before final release tagging.  
 Resume file: None

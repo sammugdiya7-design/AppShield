@@ -16,13 +16,16 @@ The developer's original source code and signing credentials remain completely u
 - **ISO-01**: Source tree immutability guarantee — original source files and build configurations are opened read-only and never modified in place — Validated in Phase 3.
 - **ISO-02**: Staged build execution in isolated temporary workspaces with sensitive file exclusions and dedicated output artifact directories — Validated in Phase 3.
 - **SEC-01**: Zero remote network transmission — no source code, telemetry, or signing keys/keystores ever leave the host machine — Validated in Phase 3.
+- **ENG-01**: Integration of verified Android protection workflows (leveraging Android Gradle Plugin and R8 toolchain on supported Android Gradle projects) — Validated in Phase 4.
+- **VER-01**: Automated post-protection verification (symbol renaming ratio, string table inspection, signature integrity, and zip alignment) — Validated in Phase 4.
+- **VER-02**: Honest reporting engine — outputs objective evidence metrics without subjective composite scores and without claiming reverse engineering is impossible — Validated in Phase 4.
+- **ENG-02**: Pluggable architecture ready for iOS (Phase 5) and Windows (Phase 6) pipelines — Validated in Phase 4 (`PlatformAdapter` interface).
 
 ### Active
 
-- [ ] **ENG-01**: Integration of verified Android protection workflows (leveraging Android Gradle Plugin and R8 toolchain on supported Android Gradle projects).
-- [ ] **VER-01**: Automated post-protection verification (symbol renaming ratio, string table inspection, signature integrity, and zip alignment).
-- [ ] **VER-02**: Honest reporting engine — outputs objective evidence metrics without subjective composite scores and without claiming reverse engineering is impossible.
-- [ ] **ENG-02**: Pluggable architecture ready for iOS (Phase 5) and Windows (Phase 6) pipelines.
+- [ ] **DEV-01**: Dynamic physical-device testing across diverse Android OEM hardware (ARM64/ARMv7, Samsung Knox, Xiaomi MIUI, ColorOS).
+- [ ] **IOS-01**: iOS Protection Engine & Mach-O Sanitization (Phase 5).
+- [ ] **WIN-01**: Windows Protection Engine & AV Safety (Phase 6).
 
 ### Out of Scope
 
@@ -56,11 +59,11 @@ AppShield fills the gap by providing an open, developer-centric, transparent CLI
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Orchestrator Architecture over Custom Obfuscator | Building a compiler backend is prone to semantic breakage and maintenance overhead; existing tools (R8, ProGuard, Obfuscar, Swift tools) are mature and robust. | — Pending |
+| Orchestrator Architecture over Custom Obfuscator | Building a compiler backend is prone to semantic breakage and maintenance overhead; existing tools (R8, ProGuard, Obfuscar, Swift tools) are mature and robust. | ✓ Good |
 | Android Gradle Project as Primary MVP Input | Running R8 via AGP on complete Gradle projects ensures full classpath, resource bindings, and platform compatibility. Standalone APK input is explicitly unsupported. | ✓ Good |
-| Ephemeral Build Sandbox with Exclusion Filters | Copying inputs into an isolated `.appshield_staging/` sandbox while filtering `.git`, `build`, and keystores prevents project corruption and credential leaks. | — Pending |
+| Ephemeral Build Sandbox with Exclusion Filters | Copying inputs into an isolated `.appshield_staging/` sandbox while filtering `.git`, `build`, and keystores prevents project corruption and credential leaks. | ✓ Good |
 | Objective Evidence Matrix over Composite Score | Avoids misleading "security scores"; reports concrete metrics, what each check proves, what it does not prove, and evidence status (`verified`/`heuristic`/`informational`). | ✓ Good |
-| Honest Security Doctrine | Explicitly stating the limits of obfuscation builds professional credibility and aligns with OWASP MASVS recommendations. | — Pending |
+| Honest Security Doctrine | Explicitly stating the limits of obfuscation builds professional credibility and aligns with OWASP MASVS recommendations. | ✓ Good |
 | Root MEMORY.md & Mandatory 10-Step Review Gate | Ensures institutional memory, continuous regression detection, zero credential leakage, and strict adherence to project invariants across all sessions. | ✓ Good |
 
 ## Evolution
@@ -81,4 +84,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-24 after Phase 1 initialization*
+*Last updated: 2026-11-10 after Phase 4 Android v1 completion and runtime validation*

@@ -54,7 +54,7 @@ A simple, local, cross-platform application code-protection CLI for developers t
 
 - **Current Phase**: Phase 4: Android Protection Pipeline & Verification Engine
 - **Current Plan**: Plan 04-04 Complete
-- **Status**: Phase 4 fully implemented and verified (CLI commands `protect` and `verify` wired to Android pipeline adapter and empirical verification engine; release acceptance gate and strict simulation barrier enforced; 276 automated tests passing with 93% coverage; ruff/mypy/bandit 100% clean; toolchain status accurately reported as 0 live builds validated pending workstation with complete toolchain).
+- **Status**: Phase 4 completed and empirically verified end-to-end: real Android Gradle release build, R8 obfuscation, test signing, and live runtime execution validated on Android emulator-5554 (API 37) (1 live build validated, 1 test-signed release verified, 1 live runtime execution verified; 301 automated tests passing with 93% coverage; ruff/mypy/bandit 100% clean). P0 and P1 release remediation completed.
 - **Overall Progress**: 75% (Phases 1, 2, 3, & 4 complete; 9 of 12 total plans completed)
 
 ---
@@ -188,6 +188,13 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Verified zero runtime crashes: Logcat scan confirmed 0 `FATAL EXCEPTION`, 0 `AndroidRuntime`, 0 `ClassNotFoundException`, 0 `NoSuchMethodError`, 0 `VerifyError`.
   - Confirmed empirical functional execution: Logcat captured `I System.out: AppShield Sample Initialized: 56`, proving that obfuscated services (`IdentifiableSecretService` -> `a`, `PaymentSecurityValidator` -> `b`) executed successfully at runtime on Android OS.
   - Preserved emulator state: Application left installed on `emulator-5554` without uninstallation or data wiping per instructions. Both APK artifacts preserved bit-for-bit.
+- [x] Completed Android v1 Release Readiness Remediation (Audit Date: 2026-11-10):
+  - Created standard MIT `LICENSE` file at repository root with explicit copyright holder placeholder.
+  - Implemented GitHub Actions CI workflow `.github/workflows/ci.yml` (multi-Python matrix 3.10/3.11/3.12, ruff lint/format, mypy, bandit, pytest coverage, build).
+  - Modernized `README.md` reflecting full Android v1 product reality, prerequisites, CLI usage flags, and empirical verification evidence while removing obsolete Phase 3 notes and correcting paths.
+  - Created root `ARCHITECTURE.md` documenting orchestration architecture, staging vs OS sandboxing, signing order, credential safety, and threat boundaries.
+  - Synchronized `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, and `MEMORY.md`.
+  - Modernized `pyproject.toml` license declaration (`license = "MIT"`), resolving packaging deprecation warnings. Verified clean source and wheel builds (`uv build`).
 
 ### Pending Tasks (Phase 5+)
 - [ ] Phase 5: iOS Protection Engine & Mach-O Sanitization (Plans 05-01 through 05-03)

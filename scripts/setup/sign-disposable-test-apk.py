@@ -57,13 +57,9 @@ def main() -> int:
         / "sample_android_gradle_project-release-protected.apk"
     )
     output_dir = repo_root / "dist" / "test-signed"
-    output_apk = (
-        output_dir / "sample_android_gradle_project-release-test-signed.apk"
-    )
+    output_apk = output_dir / "sample_android_gradle_project-release-test-signed.apk"
 
-    user_profile = Path(
-        os.environ.get("USERPROFILE") or os.path.expanduser("~")
-    )
+    user_profile = Path(os.environ.get("USERPROFILE") or os.path.expanduser("~"))
     keystore_dir = user_profile / ".appshield" / "keystores"
     keystore_path = keystore_dir / "disposable_test.jks"
 
@@ -73,11 +69,7 @@ def main() -> int:
             user_profile / "AppData" / "Local" / "Android" / "Sdk",
         )
     )
-    jdk_dir = Path(
-        os.environ.get(
-            "JAVA_HOME", user_profile / ".jdk" / "jdk-17.0.21+9"
-        )
-    )
+    jdk_dir = Path(os.environ.get("JAVA_HOME", user_profile / ".jdk" / "jdk-17.0.21+9"))
 
     print("=== AppShield Disposable Test-Signing Workflow ===")
     print(f"Repository Root    : {repo_root}")
@@ -99,7 +91,9 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    print("[PASS] Source APK verified bit-for-bit identical to first genuine build report.")
+    print(
+        "[PASS] Source APK verified bit-for-bit identical to first genuine build report."
+    )
 
     # 2. Check Overwrite Guards
     if output_apk.exists():
@@ -117,7 +111,9 @@ def main() -> int:
         return 1
 
     # 3. Locate Tools
-    keytool = find_tool("keytool", [jdk_dir / "bin" / "keytool.exe", jdk_dir / "bin" / "keytool"])
+    keytool = find_tool(
+        "keytool", [jdk_dir / "bin" / "keytool.exe", jdk_dir / "bin" / "keytool"]
+    )
     apksigner = find_tool(
         "apksigner",
         [
@@ -144,10 +140,18 @@ def main() -> int:
     env_var_name = "APPSHIELD_DISPOSABLE_TEST_PASS"
     os.environ[env_var_name] = ephemeral_secret
 
-    print("[SECURITY] Generated fresh 256-bit cryptographically secure test password in process memory.")
-    print(f"[SECURITY] Set process-local environment variable '{env_var_name}' (value masked).")
-    print("[SECURITY] Value will NEVER appear on command line arguments or in log output.")
-    print("[NOTE] Environment variables are process-local, but accessible to same-user/elevated OS inspectors.")
+    print(
+        "[SECURITY] Generated fresh 256-bit cryptographically secure test password in process memory."
+    )
+    print(
+        f"[SECURITY] Set process-local environment variable '{env_var_name}' (value masked)."
+    )
+    print(
+        "[SECURITY] Value will NEVER appear on command line arguments or in log output."
+    )
+    print(
+        "[NOTE] Environment variables are process-local, but accessible to same-user/elevated OS inspectors."
+    )
 
     keystore_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -187,7 +191,10 @@ def main() -> int:
             timeout=30,
         )
         if proc_kt.returncode != 0:
-            print(f"ERROR: keytool failed with code {proc_kt.returncode}:\n{proc_kt.stderr}", file=sys.stderr)
+            print(
+                f"ERROR: keytool failed with code {proc_kt.returncode}:\n{proc_kt.stderr}",
+                file=sys.stderr,
+            )
             return 1
 
         print(f"[PASS] Disposable keystore created at: {keystore_path}")
@@ -221,7 +228,10 @@ def main() -> int:
             timeout=60,
         )
         if proc_sign.returncode != 0:
-            print(f"ERROR: apksigner failed with code {proc_sign.returncode}:\n{proc_sign.stderr}", file=sys.stderr)
+            print(
+                f"ERROR: apksigner failed with code {proc_sign.returncode}:\n{proc_sign.stderr}",
+                file=sys.stderr,
+            )
             return 1
 
         print(f"[PASS] Signed APK generated at: {output_apk}")
@@ -232,7 +242,9 @@ def main() -> int:
         if env_var_name in os.environ:
             del os.environ[env_var_name]
         del ephemeral_secret
-        print("\n[SECURITY] Ephemeral password variable cleared from process environment.")
+        print(
+            "\n[SECURITY] Ephemeral password variable cleared from process environment."
+        )
 
     # 7. Signature Verification via apksigner verify --verbose
     print("\n--- Step 3: Verifying Signature Schemes (apksigner verify) ---")
@@ -246,7 +258,9 @@ def main() -> int:
     print(f"apksigner verify exit code: {proc_ver.returncode}")
     print(proc_ver.stdout.strip())
     if proc_ver.returncode != 0:
-        print(f"ERROR: Signature verification failed:\n{proc_ver.stderr}", file=sys.stderr)
+        print(
+            f"ERROR: Signature verification failed:\n{proc_ver.stderr}", file=sys.stderr
+        )
         return 1
 
     # 8. Alignment Verification via zipalign -c -v 4
@@ -260,7 +274,10 @@ def main() -> int:
     )
     print(f"zipalign exit code: {proc_aln.returncode}")
     if proc_aln.returncode != 0:
-        print(f"ERROR: ZIP alignment verification failed:\n{proc_aln.stderr}", file=sys.stderr)
+        print(
+            f"ERROR: ZIP alignment verification failed:\n{proc_aln.stderr}",
+            file=sys.stderr,
+        )
         return 1
     print("[PASS] Final signed APK satisfies 4-byte page alignment.")
 
@@ -270,10 +287,14 @@ def main() -> int:
     source_sha_after = compute_sha256(source_apk)
 
     print(f"Signed APK SHA-256   : {signed_sha}")
-    print(f"Original APK SHA-256 : {source_sha_after} (Expected: {EXPECTED_ORIGINAL_SHA256})")
+    print(
+        f"Original APK SHA-256 : {source_sha_after} (Expected: {EXPECTED_ORIGINAL_SHA256})"
+    )
 
     if source_sha_after != EXPECTED_ORIGINAL_SHA256:
-        print("CRITICAL ERROR: Original APK was altered during signing!", file=sys.stderr)
+        print(
+            "CRITICAL ERROR: Original APK was altered during signing!", file=sys.stderr
+        )
         return 1
     print("[PASS] Original APK remains 100% bit-for-bit identical and unmodified.")
 
