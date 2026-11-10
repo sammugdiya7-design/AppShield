@@ -180,6 +180,14 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Verified original unsigned APK remained 100% bit-for-bit identical (SHA-256 unchanged: `b4b7ed6f884b8d481de2a5a1ad0fc6af3a355ed8fb580ce1beac3a694bf77e76`).
   - Verified signed APK signature (`apksigner verify --verbose`): `Verifies` (v2: `true`, v3: `true`, signer: `CN=AppShield Disposable Test...`).
   - Verified 4-byte ZIP alignment on final signed APK (`zipalign -c -v 4` passed with code 0).
+- [x] Completed Android Runtime Installation & Execution Validation (User-Authorized):
+  - Pre-installation checks passed: `emulator-5554` (API 37, x86_64 architecture), test-signed APK SHA-256 (`c374b2630e6882aac0aec5078e054bd4b909d596cd38cb3649b04566bb3198c0`), v2/v3 signatures valid, `com.appshield.sample` not previously installed.
+  - Installed `dist/test-signed/sample_android_gradle_project-release-test-signed.apk` via `adb -s emulator-5554 install` (Streamed Install: `Success`, exit code 0).
+  - Launched `com.appshield.sample.MainActivity` via `adb -s emulator-5554 shell am start -W` (Status: `ok`, LaunchState: `COLD`, TotalTime: 988ms, assigned PID: 7478).
+  - Verified runtime lifecycle: Process confirmed alive in `ps -A` (UID `u0_a235`), `dumpsys window` confirmed `mCurrentFocus=Window{... com.appshield.sample/com.appshield.sample.MainActivity}`.
+  - Verified zero runtime crashes: Logcat scan confirmed 0 `FATAL EXCEPTION`, 0 `AndroidRuntime`, 0 `ClassNotFoundException`, 0 `NoSuchMethodError`, 0 `VerifyError`.
+  - Confirmed empirical functional execution: Logcat captured `I System.out: AppShield Sample Initialized: 56`, proving that obfuscated services (`IdentifiableSecretService` -> `a`, `PaymentSecurityValidator` -> `b`) executed successfully at runtime on Android OS.
+  - Preserved emulator state: Application left installed on `emulator-5554` without uninstallation or data wiping per instructions. Both APK artifacts preserved bit-for-bit.
 
 ### Pending Tasks (Phase 5+)
 - [ ] Phase 5: iOS Protection Engine & Mach-O Sanitization (Plans 05-01 through 05-03)
