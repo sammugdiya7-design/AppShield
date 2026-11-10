@@ -23,8 +23,8 @@ See: `MEMORY.md` (root operational memory) and `.planning/PROJECT.md` (updated 2
 
 Phase: 4 of 7 (Android Protection Pipeline & Verification Engine - Release Remediated)  
 Plan: Plan 04-04 Complete & Remediated (End-to-End CLI Integration, Automated Test Matrix, CI & Release Architecture)  
-Status: Phase 4 completed, audited, pushed, and CI-remediated: resolved Ruff 0.17.4 SIM102 lint error in gradle.py, updated public repository clone URL in README, updated pyproject.toml author metadata to Sam Jain with GitHub noreply email, clarified platform matrix (Android v1 implemented; iOS/Windows future roadmap); 301 passing tests, 93% coverage, 0 lint/type/security issues, clean wheel/sdist packaging; ready for re-push  
-Last activity: 2026-11-10 — Investigated GitHub Actions CI failure on run 42864829896. Identified root cause: unpinned Ruff 0.17.4 on PyPI flagged SIM102 in `appshield/gradle.py:221` (nested if under elif). Fixed code without disabling rules. Upgraded local Ruff to 0.17.4 and confirmed clean linting and formatting. Corrected README clone URL to `https://github.com/sammugdiya7-design/AppShield.git`. Updated pyproject.toml author metadata to Sam Jain with GitHub noreply email. Rebuilt distribution packages and verified all quality gates.
+Status: Phase 4 completed, audited, pushed, and CI-remediated: pinned ruff==0.17.4 in pyproject.toml and uv.lock for deterministic reproducibility, resolved SIM102 in gradle.py, updated public repository clone URL in README, updated pyproject.toml author metadata to Sam Jain with GitHub noreply email, clarified platform matrix (Android v1 implemented; iOS/Windows future roadmap); 301 passing tests, 93% coverage, 0 lint/type/security issues, clean wheel/sdist packaging; ready for re-push  
+Last activity: 2026-11-10 — Pinned `ruff==0.17.4` in pyproject.toml and updated uv.lock to guarantee strict reproducibility between local environments and GitHub Actions CI. Confirmed clean linting, formatting, test suite (301 passed, 93% coverage), type checking, security scan, and package generation.
 
 Progress: [████████░░] 75%
 
@@ -67,6 +67,7 @@ Progress: [████████░░] 75%
 - [CI Dependency Hardening]: Verified that `build` was missing from `[project.optional-dependencies] dev` despite being invoked by `python -m build` in CI. Added `build>=1.0` to `dev` in `pyproject.toml` and updated `uv.lock`. Streamlined `.github/workflows/ci.yml` dependency step to declarative `pip install -e ".[dev]"`. Confirmed `python -m build` succeeds locally without warnings. All 301 tests pass with 93% coverage.
 - [License Copyright Resolution]: Resolved root `LICENSE` copyright holder to `Copyright (c) 2026 Sam Jain` while strictly preserving the canonical 21-line MIT license text, permissions, and disclaimer. Confirmed `license = "MIT"` in `pyproject.toml`. Verified that `LICENSE` is embedded in both sdist and wheel distributions. All quality gates verified.
 - [CI Ruff 0.17.4 Resolution & Metadata Polish]: Diagnosed GitHub Actions CI failure on run 42864829896: unpinned pip installation in CI pulled Ruff 0.17.4, triggering SIM102 on nested if statement in `appshield/gradle.py:221`. Fixed by combining conditions with `and` instead of disabling rules. Upgraded local Ruff to 0.17.4 to match CI. Updated README clone URL to `https://github.com/sammugdiya7-design/AppShield.git`. Updated `pyproject.toml` author metadata to `Sam Jain <244658121+sammugdiya7-design@users.noreply.github.com>`. Added explicit platform matrix in README distinguishing implemented Android v1 from planned iOS/Windows milestones.
+- [Ruff Dependency Pin & Reproducibility]: Pinned `ruff==0.17.4` in `pyproject.toml` and synchronized `uv.lock`. This guarantees that future CI matrix runs on GitHub Actions execute the exact same Ruff version that passed locally, eliminating version drift risks.
 
 ### Pending Todos
 
@@ -80,6 +81,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-10 23:20 IST  
-Stopped at: Completed post-push CI investigation and resolution: resolved SIM102 in gradle.py under Ruff 0.17.4, updated README clone URL and platform support matrix, updated pyproject.toml author metadata, and verified all quality gates. Committed locally; awaiting authorization to push.  
+Last session: 2026-11-10 23:30 IST  
+Stopped at: Completed dependency reproducibility check: pinned `ruff==0.17.4` in pyproject.toml and uv.lock, verified all quality gates, and prepared commits. Ready for authorization to push to origin/master.  
 Resume file: None
