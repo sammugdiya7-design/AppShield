@@ -54,7 +54,7 @@ A simple, local, cross-platform application code-protection CLI for developers t
 
 - **Current Phase**: Phase 4: Android Protection Pipeline & Verification Engine
 - **Current Plan**: Plan 04-04 Complete
-- **Status**: Phase 4 completed and empirically verified end-to-end: real Android Gradle release build, R8 obfuscation, test signing, and live runtime execution validated on Android emulator-5554 (API 37) (1 live build validated, 1 test-signed release verified, 1 live runtime execution verified; 301 automated tests passing with 93% coverage; ruff/mypy/bandit 100% clean). Post-push CI remediation complete: resolved SIM102 in gradle.py, pinned ruff==0.17.4 in pyproject.toml and uv.lock for deterministic CI builds, updated repository clone URL to `https://github.com/sammugdiya7-design/AppShield.git`, updated author metadata in pyproject.toml to Sam Jain with GitHub noreply email, clarified platform matrix in README (Android v1 implemented; iOS/Windows future roadmap), passed all quality gates (301 tests, 93% coverage, ruff 0.17.4 clean, mypy clean, bandit clean, uv build clean).
+- **Status**: Phase 4 completed and empirically verified end-to-end: real Android Gradle release build, R8 obfuscation, test signing, and live runtime execution validated on Android emulator-5554 (API 37) (1 live build validated, 1 test-signed release verified, 1 live runtime execution verified; 301 automated tests passing with 93% coverage; ruff/mypy/bandit 100% clean). CI remediation complete: resolved SIM102 in gradle.py, pinned ruff==0.17.4 in pyproject.toml and uv.lock, declared `types-PyYAML==6.0.12.20260906` in dev dependencies and locked in uv.lock for clean CI Mypy reproducibility, updated repository clone URL to `https://github.com/sammugdiya7-design/AppShield.git`, updated author metadata in pyproject.toml to Sam Jain with GitHub noreply email, clarified platform matrix in README (Android v1 implemented; iOS/Windows future roadmap), passed all quality gates (301 tests, 93% coverage, ruff 0.17.4 clean, mypy clean in clean isolated environment and main venv, bandit clean, uv build clean).
 - **Overall Progress**: 75% (Phases 1, 2, 3, & 4 complete; 9 of 12 total plans completed)
 
 ---
@@ -189,12 +189,14 @@ A simple, local, cross-platform application code-protection CLI for developers t
   - Confirmed empirical functional execution: Logcat captured `I System.out: AppShield Sample Initialized: 56`, proving that obfuscated services (`IdentifiableSecretService` -> `a`, `PaymentSecurityValidator` -> `b`) executed successfully at runtime on Android OS.
   - Preserved emulator state: Application left installed on `emulator-5554` without uninstallation or data wiping per instructions. Both APK artifacts preserved bit-for-bit.
 - [x] Completed Android v1 Release Readiness Remediation (Audit Date: 2026-11-10):
-  - Created standard MIT `LICENSE` file at repository root with explicit copyright holder placeholder.
+  - Created standard MIT `LICENSE` file at repository root with explicit copyright holder placeholder, subsequently resolved to `Copyright (c) 2026 Sam Jain`.
   - Implemented GitHub Actions CI workflow `.github/workflows/ci.yml` (multi-Python matrix 3.10/3.11/3.12, ruff lint/format, mypy, bandit, pytest coverage, build).
-  - Modernized `README.md` reflecting full Android v1 product reality, prerequisites, CLI usage flags, and empirical verification evidence while removing obsolete Phase 3 notes and correcting paths.
+  - Modernized `README.md` reflecting full Android v1 product reality, prerequisites, CLI usage flags, empirical verification evidence, accurate public clone URL (`https://github.com/sammugdiya7-design/AppShield.git`), and explicit platform matrix (Android v1 implemented; iOS/Windows future roadmap).
   - Created root `ARCHITECTURE.md` documenting orchestration architecture, staging vs OS sandboxing, signing order, credential safety, and threat boundaries.
   - Synchronized `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, and `MEMORY.md`.
   - Modernized `pyproject.toml` license declaration (`license = "MIT"`), resolving packaging deprecation warnings. Verified clean source and wheel builds (`uv build`).
+  - Resolved CI Ruff SIM102 issue in `appshield/gradle.py:221` and pinned `ruff==0.17.4` in `pyproject.toml` and `uv.lock`.
+  - Resolved CI Mypy dependency gap: declared `"types-PyYAML==6.0.12.20260906"` in `[project.optional-dependencies] dev` in `pyproject.toml` and synchronized `uv.lock`. Verified clean CI installation (`pip install -e ".[dev]"`) and isolated Mypy execution (`mypy appshield tests` passes with 0 issues). Verified all quality gates (301 tests, 93% coverage, ruff clean, mypy clean, bandit clean, uv build clean).
 
 ### Pending Tasks (Phase 5+)
 - [ ] Phase 5: iOS Protection Engine & Mach-O Sanitization (Plans 05-01 through 05-03)
