@@ -33,7 +33,8 @@ AppShield automates application hardening workflows by orchestrating existing, t
 ## Supported Workflows & Target Toolchains
 
 ### Android v1 Pipeline
-- **Supported Project Type**: Android Gradle Projects (`gradlew` + Android Gradle Plugin) configured with release minification (`minifyEnabled true`) and ProGuard/R8 rules.
+- **Supported Project Type**: Android Gradle Projects (`gradlew` + Android Gradle Plugin, Groovy or Kotlin DSL, single- or multi-module) configured with release minification (`minifyEnabled true` / `isMinifyEnabled = true`) and ProGuard/R8 rules.
+- **APK Tasks Only in v1**: Configures and builds release APK tasks (e.g., `assembleRelease`, `assembleProdRelease`). Android App Bundle (`bundle*` / `.aab`) and `debug` tasks are rejected early during validation.
 - **Unsupported in v1 MVP**: Standalone precompiled APKs without source Gradle project context are explicitly rejected. Standalone R8 on arbitrary APKs lacks platform dependency jars, compilation classpath, and resource ID tables, leading to runtime failures.
 
 ### Tested Toolchain Versions (Android v1)
@@ -52,7 +53,7 @@ AppShield automates application hardening workflows by orchestrating existing, t
 ```bash
 # Clone the repository
 git clone https://github.com/sammugdiya7-design/AppShield.git
-cd appshield
+cd AppShield
 
 # Install in editable mode
 uv pip install -e .
@@ -81,14 +82,15 @@ appshield info
 ```
 
 ### 2. `appshield doctor`
-Inspect local host environment prerequisites (Java, javac, `JAVA_HOME`, `ANDROID_HOME`, Gradle, `zipalign`, `apksigner`):
+Inspect local host environment prerequisites (Java, `javac`, `JAVA_HOME`, `ANDROID_HOME`, Gradle, `zipalign`, `apksigner`) and inspect the local Gradle offline dependency cache (AGP & R8, read-only with zero network calls):
 ```bash
-# Inspect host toolchain
+# Inspect host toolchain and local offline Gradle cache status
 appshield doctor
 
-# Inspect with a specific Android Gradle project directory to validate wrapper and AGP version
+# Inspect with a specific Android Gradle project directory to validate wrapper, AGP version, and R8 config
 appshield doctor --project-dir tests/fixtures/sample_android_gradle_project
 ```
+> On a fresh environment where AGP/R8 artifacts are not yet cached in `~/.gradle/caches`, `appshield doctor` explains how to pass `--allow-network-dependencies` on the first `appshield protect` run. No local build history cache is stored; build validation executes live during `appshield protect`.
 
 ### 3. `appshield protect`
 Stage, harden, build, and verify a supported Android Gradle project:
@@ -185,6 +187,12 @@ verification:
     - "structural_decompilation_info"
 ```
 
+#### Configuration Safety & Verification Notes
+- **APK Task & Variant Guard**: `gradle_task` must target a release APK task (e.g., `assembleRelease`); `bundle*`/`.aab` and `debug` tasks are rejected during configuration validation.
+- **No-Obfuscation Safeguard**: ProGuard/R8 rule files containing active `-dontobfuscate` directives are rejected early during validation and rule staging.
+- **Pre-Build Signing Guard**: When `signing.enabled: true`, `keystore_path` (existing file), `key_alias`, password env vars (`keystore_password_env`), and `--allow-production-signing` (when `is_production: true`) are validated before Gradle execution starts.
+- **Verification Enforcement**: `verification.enabled`, `fail_on_check_failure`, and canonical `checks` are enforced consistently by `protect` and `verify`; unknown check names are rejected, and disabling verification or omitting mandatory core checks (`build_execution`, `apk_structure`, `symbol_renaming_ratio`, `package_alignment`, plus `signature_integrity` when signing is enabled) prevents `is_verified_protected = True`.
+
 ---
 
 ## Signing Behavior & Output Artifacts
@@ -194,7 +202,7 @@ verification:
 - **Honest Status Separation**: Verification reports strictly separate code protection from installation readiness:
   - `is_verified_protected`: Reports `True` when bytecode shrinking, R8 obfuscation, and DEX structure pass all objective checks.
   - `is_installation_ready`: Reports `False` for unsigned APKs because the Android OS Package Manager enforces cryptographic signatures during installation (`INSTALL_PARSE_FAILED_NO_CERTIFICATES`).
-- **Keystore Privacy**: Passwords are read strictly via environment variable names (`--ks-pass env:<VAR>`). They never appear in command-line arguments or logs.
+- **Keystore Privacy**: Passwords are read strictly via environment variable names (`apksigner --ks-pass env:<VAR>` and `keytool -storepass:env` / `-keypass:env` inside stripped `build_safe_env()` subprocess environments). They never appear in command-line arguments, logs, or parent `os.environ`.
 
 ---
 
@@ -238,10 +246,11 @@ AppShield Android v1 has undergone full real-world validation against a controll
 
 ## Running Tests & Quality Gates
 
-Run the automated test suite (301 unit and integration tests):
+Run the automated test suite (336 unit and integration tests, covering both `tests/fixtures/sample_android_gradle_project/` and mocked generalized Kotlin DSL builds on `tests/fixtures/unrelated_android_gradle_project/`):
 ```bash
 pytest --cov=appshield --cov-report=term-missing
 ```
+> Note: End-to-end live Gradle compilation and emulator runtime execution have been performed on `tests/fixtures/sample_android_gradle_project/`; `tests/fixtures/unrelated_android_gradle_project/` validates multi-module Groovy/Kotlin DSL layout discovery, manifest entry-point preservation, and generalized verification logic under mocked build outputs.
 
 Run code quality and static security analysis:
 ```bash

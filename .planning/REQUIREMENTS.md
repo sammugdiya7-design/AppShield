@@ -21,13 +21,13 @@ Requirements committed for v1 release (Phases 1–4).
 
 ### Android Protection Engine
 
-- [x] **AND-01**: `doctor` subcommand checks for local Android SDK prerequisites (`java`, `apksigner`, `zipalign`, Android build-tools) and reports missing dependencies cleanly.
-- [x] **AND-02**: Engine orchestrates protection via supported Android Gradle Plugin (AGP) and R8 build toolchain on Android Gradle projects; arbitrary precompiled APK input is unsupported in MVP.
-- [x] **AND-03**: Engine supports safe local APK signing and alignment; credentials read strictly via environment variable names; no automatic production signing.
+- [x] **AND-01**: `doctor` subcommand checks for local Android SDK prerequisites (`java`, `apksigner`, `zipalign`, Android build-tools) plus read-only local Gradle offline AGP/R8 dependency cache status and reports missing dependencies cleanly.
+- [x] **AND-02**: Engine orchestrates protection via supported Android Gradle Plugin (AGP) and R8 build toolchain across general Groovy/Kotlin DSL Android Gradle projects (single- or multi-module, validating APK release tasks, forbidding `-dontobfuscate`); arbitrary precompiled APK input is unsupported in MVP.
+- [x] **AND-03**: Engine supports safe local APK signing and alignment; credentials validated before Gradle build, read strictly via environment variable names inside isolated `build_safe_env()` subprocess environments; no automatic production signing.
 
 ### Verification & Honest Reporting
 
-- [x] **VER-01**: Post-build automated verification executes objective empirical checks (identifier renaming ratio, string pool inspection, signature integrity, zip alignment).
+- [x] **VER-01**: Post-build automated verification executes objective empirical checks (generalized identifier renaming across R8 `mapping.txt`, manifest entry-point preservation, string pool inspection, signature integrity, zip alignment) and honors `VerificationConfig` (`enabled`, `checks`, `fail_on_check_failure`) with an anti-bypass acceptance gate.
 - [x] **VER-02**: Precise evidentiary classification: identifier renaming is evidence of obfuscation (not impossible reverse engineering), string scans detect patterns without absolute guarantees, signature checks prove signature validity (not app safety), and decompilation checks are informational.
 - [x] **VER-03**: Report generator outputs objective metrics and explicit evidentiary definitions without any composite security scores.
 
@@ -36,7 +36,7 @@ Requirements committed for v1 release (Phases 1–4).
 - [x] **GOV-01**: Automated test execution harness (`pytest`) integrated and enforced across every task, plan, and code change.
 - [x] **GOV-02**: Execution of the mandatory 10-step full review process (tests, code review, static analysis/linting/typing, security scans, secret/file safety checks, complexity checks, acceptance checks, honest status reporting, MEMORY.md sync, change summary).
 - [x] **GOV-03**: Zero-credential leakage assurance — strict masking and prevention of private signing keys, keystore passwords, or sensitive application code appearing in logs, temp files, or version control.
-- [x] **GOV-04**: Disposable sample test policy — all destructive or mutating operations run strictly on disposable fixtures (`tests/fixtures/sample_android_gradle_project/`); developer source files remain untouched.
+- [x] **GOV-04**: Disposable sample test policy — all destructive or mutating operations run strictly on disposable fixtures (`tests/fixtures/sample_android_gradle_project/` and `tests/fixtures/unrelated_android_gradle_project/`); developer source files remain untouched.
 
 ## v2 Requirements
 
@@ -104,4 +104,4 @@ Explicitly excluded to protect project safety, focus, and integrity.
 
 ---
 *Requirements defined: 2026-10-24*
-*Last updated: 2026-11-10 with Phase 4 Android v1 completion*
+*Last updated: 2026-11-11 after Phase A Critical Product Blocker Remediation*

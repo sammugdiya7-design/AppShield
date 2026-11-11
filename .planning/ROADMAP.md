@@ -9,7 +9,7 @@ AppShield is developed across 7 modular phases, transitioning from deep domain a
 - [x] **Phase 1: Domain Research, Engines, Licenses & Platform Limitations** - In-depth research of existing tools, competitive landscape, licensing boundaries, and OS constraints.
 - [x] **Phase 2: Specifications, Threat Model, System Architecture & Acceptance Criteria** - Formalize data contracts, threat boundaries, pipeline plugins, and verification matrices.
 - [x] **Phase 3: Core Python CLI Foundation, Workspace Isolation & Test Harness** - Scaffold CLI commands (`protect`, `verify`, `doctor`), ephemeral sandboxing, and unit test suite.
-- [x] **Phase 4: Android Protection Pipeline & Verification Engine** - Integrate Android toolchains (R8/ProGuard/APK hardening), signing workflows, and JADX-based automated verification.
+- [x] **Phase 4: Android Protection Pipeline & Verification Engine** - Integrate Android toolchains (R8/ProGuard/APK hardening), signing workflows, and automated verification; subsequently hardened in Phase A for general Android Gradle projects.
 - [ ] **Phase 5: iOS Protection Engine & Mach-O Sanitization** - Add macOS/Xcode toolchain support, symbol stripping, and codesign validation.
 - [ ] **Phase 6: Windows Protection Engine & AV Safety** - Add Windows .NET/PE protection orchestration and AV heuristic risk reporting.
 - [ ] **Phase 7: Portfolio Polish, Documentation & GitHub Release** - Finalize documentation, reproducible test fixture showcase, CI/CD workflows, and release packaging.
@@ -90,6 +90,7 @@ Plans:
 - [x] 04-02: Safe Gradle build execution, APK output extraction, and test signing.
 - [x] 04-03: Empirical verification engine, string pool scanner, and mapping auditor.
 - [x] 04-04: End-to-End CLI integration, automated test matrix, and security validation.
+- [x] 04-A: Phase A Critical Product Blocker Remediation — removed fixture symbol assumptions, generalized `CHK-SYM-01` and manifest entry-point extraction, enforced `VerificationConfig` and pre-build `-dontobfuscate`/APK-task/signing safety checks, isolated `signing.py` subprocess environments via `build_safe_env()`, removed misleading doctor `"Live Builds Validated : 0"` message while surfacing read-only offline Gradle cache status, and added clean CLI exception handling plus the `unrelated_android_gradle_project` Kotlin DSL regression fixture.
 
 ---
 

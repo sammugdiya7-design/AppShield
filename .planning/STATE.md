@@ -17,14 +17,14 @@ progress:
 See: `MEMORY.md` (root operational memory) and `.planning/PROJECT.md` (updated 2026-10-24)
 
 **Core value:** The developer's original source code and signing credentials remain completely untouched and local, while production application binaries undergo verifiable, reproducible multi-layer code protection with honest, auditable security reporting.  
-**Current focus:** Android v1 Release Remediation Complete (All P0 & P1 Blockers Resolved)
+**Current focus:** Phase A — Critical Product Blocker Remediation Complete (Ready for Local Review & Commit)
 
 ## Current Position
 
-Phase: 4 of 7 (Android Protection Pipeline & Verification Engine - Release Remediated)  
-Plan: Plan 04-04 Complete & Remediated (End-to-End CLI Integration, Automated Test Matrix, CI & Release Architecture)  
-Status: Phase 4 completed, audited, pushed, and cross-platform CI-remediated: resolved host-dependency isolation gaps for zipalign, Gradle prerequisites, and PowerShell runbook AST syntax on Ubuntu runners; 307 passing tests, 93% coverage, 0 lint/type/security issues, clean wheel/sdist packaging; ready for push  
-Last activity: 2026-11-11 — Hardened test isolation across platforms: mocked zipalign in synthetic APK CLI tests, mocked check_prerequisites in prerequisite halt tests, separated PowerShell AST syntax parsing from Windows-specific drive execution. All 307 tests passing with 93% coverage across all gates.
+Phase: 4 of 7 (Android Protection Pipeline & Verification Engine — Phase A Remediated)  
+Plan: Phase A Critical Product Blocker Remediation Complete (Tasks 1–9)  
+Status: Phase A complete and locally verified: generalized `AndroidPipelineAdapter` and `VerificationEngine` across arbitrary Android Gradle packages/modules (Groovy & Kotlin DSL), enforced `VerificationConfig` (`enabled`, canonical `checks`, `fail_on_check_failure`, anti-bypass gate), added pre-build `-dontobfuscate` / APK-task / signing validation, isolated signing subprocess environments via `build_safe_env()`, removed doctor `"Live Builds Validated : 0"` and surfaced offline Gradle AGP/R8 cache status, added clean structured CLI error handling without tracebacks, and added `tests/fixtures/unrelated_android_gradle_project/` + `tests/test_phase_a_remediation.py`; 336 tests passing with 94% coverage across all local quality gates  
+Last activity: 2026-11-11 — Completed Phase A Critical Product Blocker Remediation across `config.py`, `signing.py`, `verify.py`, `doctor.py`, `adapters/android.py`, `cli.py`, docs, and tests (`336 passed`, `94%` coverage; live Gradle execution only validated on `sample_android_gradle_project/`).
 
 Progress: [████████░░] 75%
 
@@ -70,6 +70,7 @@ Progress: [████████░░] 75%
 - [Ruff Dependency Pin & Reproducibility]: Pinned `ruff==0.17.4` in `pyproject.toml` and synchronized `uv.lock`. This guarantees that future CI matrix runs on GitHub Actions execute the exact same Ruff version that passed locally, eliminating version drift risks.
 - [CI Mypy Dependency Remediation]: Declared `types-PyYAML==6.0.12.20260906` in `[project.optional-dependencies] dev` in `pyproject.toml` and synchronized `uv.lock`. This resolves the clean CI Mypy failure where `mypy appshield tests` failed due to missing stubs for `yaml` in `appshield/config.py` and `tests/test_config.py`. Verified that a fresh isolated venv executing `pip install -e ".[dev]"` installs `types-pyyaml` and runs `mypy appshield tests` with zero errors.
 - [Cross-Platform CI Test Isolation & Hardening]: Hardened test suite against host environment variance discovered on GitHub's Ubuntu runners. Isolated synthetic APK CLI verify tests from host zipalign; isolated prerequisite halt tests from host Gradle presence; separated PowerShell AST syntax validation (via Parser API) from Windows drive letter execution. Added 6 regression tests (total 307 tests, 93% coverage).
+- [Phase A Critical Product Blocker Remediation]: Removed hardcoded test-fixture symbol assumptions from `AndroidPipelineAdapter` and `VerificationEngine` (adding pure-Python manifest entry-point extraction and generalized mapping-vs-DEX dual-evidence verification), added pre-build validation rejecting `-dontobfuscate`, non-APK (`bundle*`/`.aab`)/`debug` Gradle tasks, and invalid/unconfirmed signing configs before Gradle starts, enforced `VerificationConfig` (`enabled`, canonical 7 `checks`, `fail_on_check_failure`, anti-bypass gate), isolated `keytool`/`zipalign`/`apksigner` subprocess environments via `build_safe_env()`, removed `"Live Builds Validated : 0"` from `appshield doctor` while surfacing non-networked local AGP/R8 cache inspection, added clean structured CLI error handling without tracebacks, and created `tests/fixtures/unrelated_android_gradle_project/` + `tests/test_phase_a_remediation.py` (336 tests passing locally, 94% coverage). Note: `unrelated_android_gradle_project/` is verified via mocked build outputs; live Gradle execution has been validated only on `sample_android_gradle_project/`.
 
 ### Pending Todos
 
@@ -83,6 +84,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-11 08:55 IST  
-Stopped at: Completed cross-platform test isolation and hardening. 307 tests pass locally with 93% coverage, clean lint/format/mypy/bandit/build. Ready to push and achieve green CI on GitHub Actions.  
+Last session: 2026-11-11 22:55 IST  
+Stopped at: Completed Phase A Critical Product Blocker Remediation across code, tests, and documentation (336 tests passing locally with 94% coverage; clean ruff, mypy, bandit, and uv build).  
 Resume file: None

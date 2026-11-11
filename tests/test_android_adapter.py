@@ -574,7 +574,7 @@ def create_dummy_apk(
         if include_manifest:
             zf.writestr("AndroidManifest.xml", b"<dummy-manifest/>")
         if include_dex:
-            dex_classes = classes or ["a.a", "a.b", "com.example.sample.MainActivity"]
+            dex_classes = classes or ["a.a", "a.b", "com.appshield.sample.MainActivity"]
             zf.writestr("classes.dex", create_synthetic_dex(classes=dex_classes))
         zf.writestr("resources.arsc", b"<dummy-resources/>")
     return path
@@ -780,9 +780,9 @@ def test_stage_and_protect_mocked_end_to_end_success(tmp_path: Path):
         )
         mapping_path.parent.mkdir(parents=True, exist_ok=True)
         mapping_path.write_text(
-            """com.example.sample.IdentifiableSecretService -> a.a:
-com.example.sample.PaymentSecurityValidator -> a.b:
-com.example.sample.MainActivity -> com.example.sample.MainActivity:
+            """com.appshield.sample.IdentifiableSecretService -> a.a:
+com.appshield.sample.PaymentSecurityValidator -> a.b:
+com.appshield.sample.MainActivity -> com.appshield.sample.MainActivity:
 """,
             encoding="utf-8",
         )

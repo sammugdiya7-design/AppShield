@@ -18,12 +18,13 @@ import re
 import shutil
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 from appshield.config import SigningConfig
-from appshield.gradle import redact_secrets, validate_apk_file
+from appshield.gradle import build_safe_env, redact_secrets, validate_apk_file
 
 SignatureType = Literal["unsigned", "test_signed", "production_signed"]
 
@@ -194,6 +195,9 @@ def generate_disposable_test_keystore(
 
     resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
+    pass_env_var = f"APPSHIELD_KEYTOOL_PASS_{uuid.uuid4().hex[:12]}"
+    safe_env = build_safe_env(extra_env={pass_env_var: password})
+
     cmd = [
         str(resolved_keytool),
         "-genkeypair",
@@ -208,10 +212,10 @@ def generate_disposable_test_keystore(
         "2048",
         "-validity",
         str(validity_days),
-        "-storepass",
-        password,
-        "-keypass",
-        password,
+        "-storepass:env",
+        pass_env_var,
+        "-keypass:env",
+        pass_env_var,
         "-dname",
         "CN=AppShield Disposable Test, OU=Testing, O=AppShield, C=US",
     ]
@@ -219,6 +223,7 @@ def generate_disposable_test_keystore(
     try:
         proc = subprocess.run(
             cmd,
+            env=safe_env,
             capture_output=True,
             text=True,
             check=False,
@@ -294,6 +299,7 @@ def zipalign_apk(
     try:
         proc = subprocess.run(
             cmd,
+            env=build_safe_env(),
             capture_output=True,
             text=True,
             check=False,
@@ -344,6 +350,7 @@ def verify_zipalign(
     try:
         proc = subprocess.run(
             cmd,
+            env=build_safe_env(),
             capture_output=True,
             text=True,
             check=False,
@@ -439,9 +446,14 @@ def sign_apk(
         os.environ.get(effective_key_pass_env, ""),
     ]
 
+    safe_env = build_safe_env(
+        allowed_sensitive_vars=[keystore_password_env, effective_key_pass_env]
+    )
+
     try:
         proc = subprocess.run(
             cmd,
+            env=safe_env,
             capture_output=True,
             text=True,
             check=False,
@@ -489,6 +501,7 @@ def verify_apk_signature(
     try:
         proc = subprocess.run(
             cmd,
+            env=build_safe_env(),
             capture_output=True,
             text=True,
             check=False,

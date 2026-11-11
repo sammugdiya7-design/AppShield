@@ -1,0 +1,39 @@
+version: "1.0"
+project_name: "acme_ledger_android"
+platform: "android"
+
+input:
+  project_dir: "."
+  verify_source_immutability: true
+  exclude_patterns:
+    - ".git/**"
+    - "build/**"
+    - "**/build/**"
+    - ".gradle/**"
+    - "**/*.jks"
+    - "**/*.keystore"
+    - "local.properties"
+    - "**/*.env*"
+
+output:
+  dir: "./dist/protected"
+  overwrite_existing: false
+
+android:
+  project_type: "gradle"
+  build_variant: "release"
+  gradle_task: "assembleRelease"
+  signing:
+    enabled: false
+
+verification:
+  enabled: true
+  fail_on_check_failure: true
+  checks:
+    - "build_execution"
+    - "apk_structure"
+    - "symbol_renaming_ratio"
+    - "signature_integrity"
+    - "package_alignment"
+    - "string_pool_inspection"
+    - "structural_decompilation_info"

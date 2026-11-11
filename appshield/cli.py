@@ -12,14 +12,23 @@ from pathlib import Path
 import appshield
 from appshield.adapters.android import AndroidPipelineAdapter
 from appshield.config import (
+    AppShieldError,
     ConfigError,
     ConfigNotFoundError,
     ConfigValidationError,
     OverwriteError,
+    VerificationConfig,
     load_config,
     validate_output_destination,
 )
-from appshield.doctor import run_doctor_checks
+from appshield.dex import DexError
+from appshield.doctor import (
+    get_offline_dependency_cache_reports,
+    run_doctor_checks,
+)
+from appshield.gradle import GradleError
+from appshield.mapping import MappingParseError
+from appshield.signing import SigningError
 from appshield.verify import (
     VerificationEngine,
     export_report_json,
@@ -216,14 +225,30 @@ def cmd_doctor(project_dir: Path | None = None) -> int:
                 all_required_ok = False
             print(f"         Remediation : {item.remediation_hint}")
 
+    cache_reports = get_offline_dependency_cache_reports()
     print("-----------------------------------------------------------------")
-    print("Toolchain Validation Status:")
-    print("  [INFO] Live Builds Validated : 0")
+    print("Offline Gradle Dependency Cache Status (read-only local inspection):")
+    missing_cache = False
+    for cache_item in cache_reports:
+        cache_tag = "[OK]" if cache_item.is_available else "[NOT CACHED]"
+        print(f"{cache_tag:<12} {cache_item.name}")
+        if cache_item.is_available:
+            print(f"             Status: {cache_item.version}")
+        else:
+            missing_cache = True
+            if cache_item.target_version:
+                print(f"             Target: {cache_item.target_version}")
+            print(f"             Hint  : {cache_item.remediation_hint}")
+    if missing_cache:
+        print(
+            "  Note : Host toolchain prerequisites are evaluated separately from the local Gradle dependency cache."
+        )
+        print(
+            "         On a fresh environment without cached AGP/R8 artifacts, pass '--allow-network-dependencies'"
+        )
+        print("         on your first 'appshield protect' run.")
     print(
-        "  Note : Selected target versions are based on AGP compatibility documentation."
-    )
-    print(
-        "         Toolchain compatibility has not yet been validated through a successful live build."
+        "  Info : No local build history cache is stored; build validation runs live during 'appshield protect'."
     )
     print("-----------------------------------------------------------------")
     if all_required_ok:
@@ -353,11 +378,24 @@ def cmd_protect(
     print("-----------------------------------------------------------------")
 
     adapter = AndroidPipelineAdapter()
-    result = adapter.stage_and_protect(
-        config=config,
-        mapping_out=mapping_out,
-        allow_production_signing=allow_production_signing,
-    )
+    try:
+        result = adapter.stage_and_protect(
+            config=config,
+            mapping_out=mapping_out,
+            allow_production_signing=allow_production_signing,
+        )
+    except OverwriteError as e:
+        print(f"Overwrite Protection Error: {e}", file=sys.stderr)
+        return 1
+    except (
+        AppShieldError,
+        GradleError,
+        SigningError,
+        DexError,
+        MappingParseError,
+    ) as e:
+        print(f"Protection Error ({type(e).__name__}): {e}", file=sys.stderr)
+        return 1
 
     for log_msg in result.logs:
         print(f"  [PIPELINE] {log_msg}")
@@ -429,10 +467,12 @@ def cmd_verify(
 
     project_name = "AppShieldProject"
     signing_config = None
+    verification_config: VerificationConfig | None = None
     if config_path is not None:
         try:
             cfg = load_config(config_path)
             project_name = cfg.project_name
+            verification_config = cfg.verification
             if cfg.platform == "android" and cfg.android:
                 signing_config = cfg.android.signing
         except ConfigError as e:
@@ -440,13 +480,24 @@ def cmd_verify(
             return 1
 
     engine = VerificationEngine(project_name=project_name)
-    report = engine.run_all_checks(
-        apk_path=resolved_artifact,
-        mapping_file=resolved_mapping,
-        signing_config=signing_config,
-        build_result=None,
-        is_real_build=True,
-    )
+    try:
+        report = engine.run_all_checks(
+            apk_path=resolved_artifact,
+            mapping_file=resolved_mapping,
+            signing_config=signing_config,
+            build_result=None,
+            is_real_build=True,
+            verification_config=verification_config,
+        )
+    except (
+        AppShieldError,
+        GradleError,
+        SigningError,
+        DexError,
+        MappingParseError,
+    ) as e:
+        print(f"Verification Error ({type(e).__name__}): {e}", file=sys.stderr)
+        return 1
 
     print()
     print(format_report_terminal(report))
@@ -462,11 +513,25 @@ def cmd_verify(
             return 1
 
     failed_count = report.summary.get("failed", 0)
+    ver_enabled = (
+        verification_config.enabled if verification_config is not None else True
+    )
+    fail_on_failure = (
+        verification_config.fail_on_check_failure
+        if verification_config is not None
+        else True
+    )
+
     if not report.is_verified_protected:
-        if failed_count == 0:
+        if not ver_enabled:
+            print(
+                "\nNotice: Verification is disabled in configuration ('verification.enabled: false'); "
+                "artifact is NOT designated as a verified protected release."
+            )
+        elif failed_count == 0:
             print(
                 "\nNotice: Artifact inspection succeeded (0 check failures), but artifact is NOT "
-                "designated as a verified protected release (requires attached toolchain build session)."
+                "designated as a verified protected release (requires all mandatory checks passing in an attached toolchain build session)."
             )
         else:
             print(f"\nVerification FAILED: {failed_count} objective check(s) failed.")
@@ -475,7 +540,9 @@ def cmd_verify(
 
     print(f"Android Installation Ready: {report.installation_readiness_status}")
 
-    return 1 if failed_count > 0 else 0
+    if failed_count > 0 and fail_on_failure:
+        return 1
+    return 0
 
 
 def main(args: list[str] | None = None) -> int:

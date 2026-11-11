@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from appshield.gradle import (
+    check_gradle_cache_dependencies,
     get_wrapper_distribution_version,
     parse_gradle_version,
 )
@@ -603,6 +604,57 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
     return reports
 
 
+def get_offline_dependency_cache_reports(
+    gradle_user_home: Path | None = None,
+) -> list[ToolReport]:
+    """
+    Inspect the local Gradle dependency cache (without issuing any network requests)
+    to report whether AGP and R8 artifacts appear available for offline builds.
+    Distinguishes missing offline cache entries from missing host toolchain binaries.
+    """
+    cache_info = check_gradle_cache_dependencies(gradle_user_home=gradle_user_home)
+    resolved_home = gradle_user_home or (
+        Path(os.environ["GRADLE_USER_HOME"])
+        if "GRADLE_USER_HOME" in os.environ
+        else Path.home() / ".gradle"
+    )
+    cache_path = str(resolved_home / "caches" / "modules-2" / "files-2.1")
+
+    agp_cached = bool(cache_info.get("agp_cached", False))
+    r8_cached = bool(cache_info.get("r8_cached", False))
+
+    return [
+        ToolReport(
+            name="Gradle Offline Cache (AGP)",
+            is_available=agp_cached,
+            version="Cached locally (offline-ready)" if agp_cached else None,
+            target_version="com.android.tools.build:gradle",
+            required=False,
+            remediation_hint=(
+                ""
+                if agp_cached
+                else "AGP plugin artifacts not found in local Gradle cache; run first build with '--allow-network-dependencies' or pre-populate cache."
+            ),
+            path=cache_path if cache_info.get("cache_dir_exists") else None,
+            validated_live=False,
+        ),
+        ToolReport(
+            name="Gradle Offline Cache (R8)",
+            is_available=r8_cached,
+            version="Cached locally (offline-ready)" if r8_cached else None,
+            target_version="com.android.tools:r8",
+            required=False,
+            remediation_hint=(
+                ""
+                if r8_cached
+                else "R8 compiler artifacts not found in local Gradle cache; run first build with '--allow-network-dependencies' or pre-populate cache."
+            ),
+            path=cache_path if cache_info.get("cache_dir_exists") else None,
+            validated_live=False,
+        ),
+    ]
+
+
 def is_android_gradle_project(project_dir: Path) -> tuple[bool, list[str]]:
     """
     Inspect a directory to determine if it is a supported Android Gradle project.
@@ -642,6 +694,27 @@ def is_android_gradle_project(project_dir: Path) -> tuple[bool, list[str]]:
         or (resolved / "app" / "build.gradle.kts").is_file()
         or (resolved / "build.gradle").is_file()
         or (resolved / "build.gradle.kts").is_file()
+        or any(
+            child.is_dir()
+            and not child.name.startswith(".")
+            and (
+                (
+                    (child / "build.gradle").is_file()
+                    and "com.android.application"
+                    in (child / "build.gradle").read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                )
+                or (
+                    (child / "build.gradle.kts").is_file()
+                    and "com.android.application"
+                    in (child / "build.gradle.kts").read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                )
+            )
+            for child in resolved.iterdir()
+        )
     )
     if not has_app_build:
         reasons.append(

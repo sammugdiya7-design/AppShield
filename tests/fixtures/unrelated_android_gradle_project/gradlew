@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# Disposable Gradle wrapper placeholder for automated unit/integration tests
+echo "Gradle wrapper placeholder"
+exit 0

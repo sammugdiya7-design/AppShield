@@ -46,10 +46,12 @@ All platform-specific build and protection logic adheres to the abstract interfa
   - `sign_if_configured()`: Performs local alignment and signing if explicitly authorized.
 
 - **`AndroidPipelineAdapter` Implementation**:
-  - Validates project type: strictly requires an Android Gradle project with `minifyEnabled true` and valid ProGuard/R8 rules.
+  - Validates project type: strictly requires an Android Gradle project (single- or multi-module, Groovy `build.gradle` or Kotlin `build.gradle.kts`) with `minifyEnabled true` / `isMinifyEnabled = true`, valid ProGuard/R8 rules without `-dontobfuscate`, and release APK Gradle tasks (rejecting `bundle*`/`.aab` or `debug` tasks).
+  - Extracts `AndroidManifest.xml` entry-point components dynamically across arbitrary package names and custom module directories (e.g., `app`, `mobile`, `root`).
   - Explicitly rejects standalone precompiled APK inputs in v1 MVP.
   - Injects AppShield-specific rules into temporary staging copies without altering developer source files.
-  - Enforces release acceptance gates before exporting any artifacts.
+  - Validates `signing` paths, password environment variables, and production confirmation flags before starting Gradle builds.
+  - Enforces release acceptance gates and `VerificationConfig` constraints before exporting any artifacts.
 
 ---
 
@@ -116,8 +118,8 @@ AppShield enforces strict credential protection rules:
 [Signed Output APK] ────────► Password never appears in CLI flags, logs, or reports
 ```
 
-1. **Credential Masking**: Keystore and key passwords are referenced exclusively via environment variable names (`--ks-pass env:<VAR>`). They are never accepted as plaintext CLI arguments, printed in console output, or written to disk.
-2. **No Automatic Production Signing**: Release signing is disabled by default. Enabling production signing requires the explicit CLI confirmation flag `--allow-production-signing`.
+1. **Credential Masking & Process Isolation**: Keystore and key passwords are referenced exclusively via environment variable names (`apksigner --ks-pass env:<VAR>`, `keytool -storepass:env` / `-keypass:env`). Signing subprocesses (`keytool`, `zipalign`, `apksigner`) execute with sanitized `build_safe_env()` environments containing only the specifically required credentials rather than inheriting unrelated secrets or mutating parent `os.environ`.
+2. **Pre-Build Validation & Production Gate**: Release signing is disabled by default. Enabling `signing.enabled: true` validates keystore existence, `key_alias`, configured password env vars, and `--allow-production-signing` (when `is_production: true`) before Gradle runs.
 3. **Correct Order of Operations**:
    - 1. Build release APK (unsigned).
    - 2. Page-align unsigned APK using `zipalign -p -f 4`.
@@ -147,14 +149,15 @@ Post-protection verification replaces subjective marketing scores with empirical
 |:---|:---|:---:|:---|:---|
 | **CHK-BLD-01** | Actual Build Completion | `VERIFIED` | Toolchain executed and exited with return code 0. | Does not prove the resulting binary is bug-free or secure. |
 | **CHK-APK-01** | APK Structure & DEX Validity | `VERIFIED` | Archive format and Dalvik bytecode header/tables are valid. | Does not prove application runs correctly on a device. |
-| **CHK-SYM-01** | Dual-Evidence Symbol Renaming | `VERIFIED` | Target classes were stripped/renamed in compiled DEX bytecode. | Does not prove the app is impossible to reverse-engineer. |
+| **CHK-SYM-01** | Dual-Evidence Symbol Renaming | `VERIFIED` | Cross-verifies R8 `mapping.txt` renamed classes and `AndroidManifest.xml` entry points against DEX bytecode (failing if 0 classes renamed / `-dontobfuscate`). | Does not prove the app is impossible to reverse-engineer. |
 | **CHK-SIG-01** | Cryptographic Signature Integrity | `VERIFIED` | APK is validly signed under v2/v3 signature schemes. | Does not prove application code is safe or malicious-free. |
 | **CHK-ALN-01** | 4-Byte ZIP Page Alignment | `VERIFIED` | All archive entries align to 4-byte boundaries for mmap. | Does not prove application runtime stability. |
 | **CHK-STR-01** | String Constant Pool Scan | `HEURISTIC` | Scans string constants for credentials/tokens with redaction. | Cannot guarantee that no obfuscated or dynamic secrets exist. |
 | **CHK-CMP-01** | Informational Structural Inspection | `INFORMATIONAL` | Static Dalvik 035–040 header and table boundary compliance. | Does NOT prove runtime execution without live device testing. |
 
-### Strict Status Separation:
-- **`is_verified_protected`**: Set to `True` when toolchain build, bytecode obfuscation, DEX tables, and alignment satisfy all security gates with 0 failures.
+### Strict Status Separation & Configuration Enforcement:
+- **`is_verified_protected`**: Set to `True` only when `verification.enabled` is `True`, all mandatory core checks (`CHK-BLD-01`, `CHK-APK-01`, `CHK-SYM-01`, `CHK-ALN-01`, plus `CHK-SIG-01` when signing is enabled) are executed and pass with 0 failures and 0 inconclusive checks.
+- **Anti-Bypass Gate**: Excluding mandatory checks in `verification.checks` or setting `verification.enabled: false` marks skipped checks cleanly as `SKIPPED` and prevents `is_verified_protected = True`.
 - **`is_installation_ready`**: Set to `False` for unsigned APKs, honestly reflecting that the Android OS Package Manager rejects unsigned packages upon installation.
 
 ---
@@ -162,5 +165,6 @@ Post-protection verification replaces subjective marketing scores with empirical
 ## 9. Failure and Simulation Barriers
 
 1. **Simulation Barrier**: Simulated or mocked adapters used during unit tests are strictly prohibited from exporting artifacts to production release paths (`dist/protected/`).
-2. **Atomic Rollback**: If compilation, R8 execution, or signing fails, temporary staging workspaces are automatically purged, preventing partial or corrupted artifacts from reaching release destinations.
-3. **Overwrite Safeguards**: Output artifacts, standalone audit reports, and private mapping files are protected by `OverwriteError`. They will not overwrite existing files without explicit authorization (`--overwrite`).
+2. **Structured Error Handling**: CLI commands (`protect`, `verify`, `doctor`, `info`) catch adapter, Gradle, signing, DEX, mapping, sandbox, overwrite, immutability, and config errors cleanly, returning exit code `1` with actionable hints and redacted secrets rather than raw Python tracebacks.
+3. **Atomic Rollback**: If compilation, R8 execution, or signing fails, temporary staging workspaces are automatically purged, preventing partial or corrupted artifacts from reaching release destinations.
+4. **Overwrite Safeguards**: Output artifacts, standalone audit reports, and private mapping files are protected by `OverwriteError`. They will not overwrite existing files without explicit authorization (`--overwrite`).

@@ -6,10 +6,14 @@ toolchain prerequisite discovery, and safe R8 rule staging for Android Gradle pr
 
 from __future__ import annotations
 
+import dataclasses
+import os
 import re
+import shutil
 from pathlib import Path
 
 from appshield.adapters.base import (
+    AdapterError,
     PlatformAdapter,
     PrerequisiteCheck,
     ProjectInspection,
@@ -18,18 +22,31 @@ from appshield.adapters.base import (
 )
 from appshield.config import (
     AppShieldConfig,
+    ConfigValidationError,
     OverwriteError,
+    SigningConfig,
+    validate_android_release_task,
     validate_output_destination,
 )
+from appshield.dex import DexError
 from appshield.doctor import run_doctor_checks
 from appshield.gradle import (
+    GradleError,
+    GradleExecutionError,
     GradleRunner,
+    GradleTimeoutError,
     locate_build_apk,
     locate_r8_mapping,
+    redact_secrets,
     validate_apk_file,
 )
-from appshield.sandbox import SandboxManager
-from appshield.signing import align_and_sign_apk
+from appshield.mapping import MappingParseError
+from appshield.sandbox import (
+    SandboxError,
+    SandboxManager,
+    SourceImmutabilityError,
+)
+from appshield.signing import SigningError, align_and_sign_apk
 from appshield.verify import (
     VerificationEngine,
     export_report_json,
@@ -75,6 +92,173 @@ def contains_unobfuscated_keep_directive(text: str, pattern: str) -> bool:
         ):
             return True
     return False
+
+
+def contains_dontobfuscate_directive(text: str) -> bool:
+    """
+    Detect whether ProGuard/R8 rules contain an active '-dontobfuscate' directive.
+    Ignores comments beginning with '#'.
+    """
+    for raw_line in text.splitlines():
+        line_no_comment = raw_line.split("#", 1)[0].strip()
+        if not line_no_comment:
+            continue
+        if re.search(r"(?:^|\s)-dontobfuscate(?:\s|$)", line_no_comment, re.IGNORECASE):
+            return True
+    return False
+
+
+def contains_dontshrink_directive(text: str) -> bool:
+    """Detect whether ProGuard/R8 rules contain an active '-dontshrink' directive."""
+    for raw_line in text.splitlines():
+        line_no_comment = raw_line.split("#", 1)[0].strip()
+        if not line_no_comment:
+            continue
+        if re.search(r"(?:^|\s)-dontshrink(?:\s|$)", line_no_comment, re.IGNORECASE):
+            return True
+    return False
+
+
+def extract_manifest_entry_points(
+    project_dir: Path,
+    module_name: str | None = None,
+    build_file: Path | None = None,
+) -> list[str]:
+    """
+    Extract Android application entry-point class names belonging to the project
+    package/namespace from its source AndroidManifest.xml (e.g., activities, services).
+    Returns fully-qualified class names when namespace/package can be resolved.
+    Uses comment-stripped regex parsing to stay deterministic and dependency-free.
+    """
+    resolved = project_dir.resolve()
+    candidates: list[Path] = []
+    if module_name and module_name != "root":
+        candidates.append(
+            resolved / module_name / "src" / "main" / "AndroidManifest.xml"
+        )
+    candidates.append(resolved / "app" / "src" / "main" / "AndroidManifest.xml")
+    candidates.append(resolved / "src" / "main" / "AndroidManifest.xml")
+
+    manifest_path: Path | None = None
+    for cand in candidates:
+        if cand.is_file():
+            manifest_path = cand
+            break
+
+    if manifest_path is None:
+        return []
+
+    raw_xml = manifest_path.read_text(encoding="utf-8", errors="replace")
+    clean_xml = re.sub(r"<!--.*?-->", "", raw_xml, flags=re.DOTALL)
+
+    base_package: str | None = None
+    pkg_match = re.search(r"\bpackage\s*=\s*['\"]([^'\"]+)['\"]", clean_xml)
+    if pkg_match:
+        base_package = pkg_match.group(1).strip()
+
+    app_id: str | None = None
+    if build_file is not None and build_file.is_file():
+        build_txt = build_file.read_text(encoding="utf-8", errors="replace")
+        if base_package is None:
+            ns_match = re.search(r"\bnamespace\s*=?\s*['\"]([^'\"]+)['\"]", build_txt)
+            if ns_match:
+                base_package = ns_match.group(1).strip()
+        app_id_match = re.search(
+            r"\bapplicationId\s*=?\s*['\"]([^'\"]+)['\"]", build_txt
+        )
+        if app_id_match:
+            app_id = app_id_match.group(1).strip()
+        if base_package is None:
+            base_package = app_id
+
+    tag_pattern = re.compile(
+        r"<(application|activity|service|receiver|provider)\b([^>]*)>",
+        re.IGNORECASE | re.DOTALL,
+    )
+    name_attr_pattern = re.compile(r"\bandroid:name\s*=\s*['\"]([^'\"]+)['\"]")
+
+    entry_points: list[str] = []
+    for _tag, attrs in tag_pattern.findall(clean_xml):
+        m_name = name_attr_pattern.search(attrs)
+        if not m_name:
+            continue
+        comp_name = m_name.group(1).strip()
+        if "${applicationId}" in comp_name and (app_id or base_package):
+            comp_name = comp_name.replace(
+                "${applicationId}", app_id or base_package or ""
+            )
+        if not comp_name or "${" in comp_name:
+            continue
+
+        resolved_cls: str | None = None
+        if comp_name.startswith("."):
+            if base_package:
+                resolved_cls = f"{base_package}{comp_name}"
+        elif "." not in comp_name:
+            if base_package:
+                resolved_cls = f"{base_package}.{comp_name}"
+        else:
+            # Include fully qualified components belonging to this app's package/namespace
+            # or if no base_package was detected, include non-AndroidX/platform classes
+            if base_package:
+                if comp_name == base_package or comp_name.startswith(
+                    f"{base_package}."
+                ):
+                    resolved_cls = comp_name
+            elif not comp_name.startswith(("android.", "androidx.")):
+                resolved_cls = comp_name
+
+        if resolved_cls and resolved_cls not in entry_points:
+            entry_points.append(resolved_cls)
+
+    return entry_points
+
+
+def validate_prebuild_signing_config(
+    signing_config: SigningConfig, allow_production_signing: bool
+) -> list[str]:
+    """Validate signing configuration and environment variables prior to build execution."""
+    if not signing_config.enabled:
+        return []
+
+    errors: list[str] = []
+    if signing_config.is_production and not allow_production_signing:
+        errors.append(
+            "Automatic production signing is blocked. Pass '--allow-production-signing' "
+            "to explicitly authorize signing with a production keystore."
+        )
+
+    if signing_config.keystore_path is None:
+        errors.append(
+            "Signing is enabled ('android.signing.enabled: true') but 'keystore_path' is missing."
+        )
+    elif not signing_config.keystore_path.is_file():
+        errors.append(
+            f"Signing keystore file does not exist: '{signing_config.keystore_path}'."
+        )
+
+    if not signing_config.key_alias:
+        errors.append(
+            "Signing is enabled ('android.signing.enabled: true') but 'key_alias' is missing."
+        )
+
+    if not signing_config.keystore_password_env:
+        errors.append(
+            "Signing is enabled ('android.signing.enabled: true') but 'keystore_password_env' is missing."
+        )
+    elif not os.environ.get(signing_config.keystore_password_env):
+        errors.append(
+            f"Signing keystore password environment variable '{signing_config.keystore_password_env}' is not set or empty."
+        )
+
+    if signing_config.key_password_env and not os.environ.get(
+        signing_config.key_password_env
+    ):
+        errors.append(
+            f"Signing key password environment variable '{signing_config.key_password_env}' is not set or empty."
+        )
+
+    return errors
 
 
 def extract_block(text: str, block_name: str) -> str | None:
@@ -401,6 +585,20 @@ class AndroidPipelineAdapter(PlatformAdapter):
                         errors.append(
                             f"Configured ProGuard/R8 rules file does not exist: '{expected_cand.resolve()}'"
                         )
+                    else:
+                        rules_text = rules_file.read_text(
+                            encoding="utf-8", errors="replace"
+                        )
+                        if contains_dontobfuscate_directive(rules_text):
+                            errors.append(
+                                f"Unsafe ProGuard/R8 rule '-dontobfuscate' detected in '{rules_file.relative_to(resolved)}'. "
+                                "R8 symbol obfuscation is disabled; remove '-dontobfuscate' before running AppShield."
+                            )
+                        if contains_dontshrink_directive(rules_text):
+                            warnings.append(
+                                f"ProGuard/R8 rules file '{rules_file.relative_to(resolved)}' contains '-dontshrink'; "
+                                "code shrinking may be reduced."
+                            )
 
         # 7. Extract AGP version from root build.gradle or module build.gradle
         for cand_root in [
@@ -510,6 +708,11 @@ class AndroidPipelineAdapter(PlatformAdapter):
                     f"Configured custom R8 rules file does not exist: '{custom_resolved}'"
                 )
             file_rules = custom_resolved.read_text(encoding="utf-8", errors="replace")
+            if contains_dontobfuscate_directive(file_rules):
+                raise RuleStagingError(
+                    f"Custom rules file '{custom_resolved.name}' contains unsafe '-dontobfuscate' directive; "
+                    "remove '-dontobfuscate' so R8 obfuscates symbols."
+                )
             for pattern in FORBIDDEN_TEST_KEEP_PATTERNS:
                 if contains_unobfuscated_keep_directive(file_rules, pattern):
                     raise RuleStagingError(
@@ -520,6 +723,11 @@ class AndroidPipelineAdapter(PlatformAdapter):
             )
 
         if custom_rules is not None:
+            if contains_dontobfuscate_directive(custom_rules):
+                raise RuleStagingError(
+                    "Custom rules string contains unsafe '-dontobfuscate' directive; "
+                    "remove '-dontobfuscate' so R8 obfuscates symbols."
+                )
             for pattern in FORBIDDEN_TEST_KEEP_PATTERNS:
                 if contains_unobfuscated_keep_directive(custom_rules, pattern):
                     raise RuleStagingError(
@@ -567,7 +775,7 @@ class AndroidPipelineAdapter(PlatformAdapter):
           15. Export protected artifact only when release acceptance conditions are met.
           16. Clean up staging files safely.
         """
-        # 1. Validate project structure
+        # 1. Validate project structure and release build configuration
         inspection = self.validate_project(config.input.project_dir)
         if not inspection.is_supported:
             return ProtectionResult(
@@ -576,6 +784,63 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 logs=["Project validation failed."],
                 error_message=f"Cannot protect project: {'; '.join(inspection.errors)}",
                 metadata={"validation_errors": inspection.errors},
+            )
+
+        # 1b. Pre-build safety validation (task, variant, custom rules, signing config)
+        try:
+            validate_android_release_task(
+                config.android.gradle_task, config.android.build_variant
+            )
+        except ConfigValidationError as e:
+            return ProtectionResult(
+                success=False,
+                protected_artifact_path=None,
+                logs=["Pre-build task configuration validation failed."],
+                error_message=f"Pre-build configuration error: {e}",
+                metadata={"error_type": "InvalidTaskConfiguration"},
+            )
+
+        if config.android.r8_rules_file is not None:
+            custom_rules_path = config.android.r8_rules_file.resolve()
+            if not custom_rules_path.is_file():
+                return ProtectionResult(
+                    success=False,
+                    protected_artifact_path=None,
+                    logs=["Pre-build R8 rules validation failed."],
+                    error_message=(
+                        f"Configured custom R8 rules file does not exist: '{custom_rules_path}'."
+                    ),
+                    metadata={"error_type": "MissingCustomRulesFile"},
+                )
+            custom_rules_text = custom_rules_path.read_text(
+                encoding="utf-8", errors="replace"
+            )
+            if contains_dontobfuscate_directive(custom_rules_text):
+                return ProtectionResult(
+                    success=False,
+                    protected_artifact_path=None,
+                    logs=["Pre-build R8 rules validation failed."],
+                    error_message=(
+                        f"Unsafe ProGuard/R8 rule '-dontobfuscate' detected in custom rules file "
+                        f"'{custom_rules_path}'. Remove '-dontobfuscate' before running AppShield."
+                    ),
+                    metadata={"error_type": "UnsafeProguardRules"},
+                )
+
+        signing_preflight_errors = validate_prebuild_signing_config(
+            config.android.signing,
+            allow_production_signing=allow_production_signing,
+        )
+        if signing_preflight_errors:
+            return ProtectionResult(
+                success=False,
+                protected_artifact_path=None,
+                logs=["Pre-build signing configuration validation failed."],
+                error_message=(
+                    "Signing configuration error:\n  - "
+                    + "\n  - ".join(signing_preflight_errors)
+                ),
+                metadata={"error_type": "SigningConfigurationError"},
             )
 
         # 2. Check prerequisites if running with default runner
@@ -600,7 +865,11 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 )
 
         # 3. Validate output destination overwrite safeguards
-        module_name = getattr(config.android, "module_name", "app") or "app"
+        module_name = (
+            inspection.module_name
+            or getattr(config.android, "module_name", None)
+            or "app"
+        )
         target_filename = (
             f"{config.project_name}-{config.android.build_variant}-protected.apk"
         )
@@ -647,85 +916,133 @@ class AndroidPipelineAdapter(PlatformAdapter):
             "Starting Android Gradle protection pipeline in isolated staging sandbox."
         ]
 
-        # 5. Isolated Staging Sandbox
+        secrets_to_redact: list[str] = []
+        for env_name in (
+            config.android.signing.keystore_password_env,
+            config.android.signing.key_password_env,
+        ):
+            if env_name:
+                val = os.environ.get(env_name, "")
+                if val:
+                    secrets_to_redact.append(val)
+
+        # 5. Isolated Staging Sandbox with structured operational error handling
         sandbox = SandboxManager(
             source_dir=config.input.project_dir,
             exclude_patterns=config.input.exclude_patterns,
             immutability_exclude_patterns=config.input.immutability_exclude_patterns,
         )
 
-        with sandbox:
-            staging_dir = sandbox.staging_dir
-            logs.append(f"Project staged in ephemeral sandbox: '{staging_dir}'")
+        try:
+            with sandbox:
+                staging_dir = sandbox.staging_dir
+                logs.append(f"Project staged in ephemeral sandbox: '{staging_dir}'")
 
-            # 6. Inject R8 protection rules into staging workspace
-            staged_rules_file = self.stage_rules(
-                staging_dir=staging_dir,
-                custom_rules_file=config.android.r8_rules_file,
-            )
-            logs.append(
-                f"Injected AppShield R8 protection rules into '{staged_rules_file.name}'"
-            )
-
-            # 7. Execute Gradle build inside staging sandbox
-            if runner is not None:
-                active_runner = runner
-                if hasattr(active_runner, "project_dir"):
-                    active_runner.project_dir = staging_dir
-            else:
-                active_runner = GradleRunner(
-                    project_dir=staging_dir,
-                    timeout_seconds=300.0,
-                    offline=config.android.offline,
-                    no_daemon=True,
+                # 6. Inject R8 protection rules into staging workspace
+                staged_rules_file = self.stage_rules(
+                    staging_dir=staging_dir,
+                    custom_rules_file=config.android.r8_rules_file,
                 )
-
-            if not config.android.offline:
                 logs.append(
-                    "Network dependency resolution EXPLICITLY AUTHORIZED for this build. Operating in staging sandbox."
+                    f"Injected AppShield R8 protection rules into '{staged_rules_file.name}'"
                 )
-            else:
+
+                # 7. Execute Gradle build inside staging sandbox
+                if runner is not None:
+                    active_runner = runner
+                    if hasattr(active_runner, "project_dir"):
+                        active_runner.project_dir = staging_dir
+                else:
+                    active_runner = GradleRunner(
+                        project_dir=staging_dir,
+                        timeout_seconds=300.0,
+                        offline=config.android.offline,
+                        no_daemon=True,
+                        secrets_to_redact=secrets_to_redact,
+                    )
+
+                if not config.android.offline:
+                    logs.append(
+                        "Network dependency resolution EXPLICITLY AUTHORIZED for this build. Operating in staging sandbox."
+                    )
+                else:
+                    logs.append(
+                        "Offline mode enforced (--offline). Using local Gradle and Android dependency cache."
+                    )
+
+                build_res = active_runner.run_task(config.android.gradle_task)
+                if not build_res.success:
+                    err_diag = redact_secrets(
+                        build_res.stderr or build_res.stdout or "Unknown build error",
+                        secrets_to_redact,
+                    )
+                    hint = ""
+                    if config.android.offline and any(
+                        tok in err_diag.lower()
+                        for tok in (
+                            "not found in any of the following sources",
+                            "no cached version",
+                            "--offline",
+                            "could not resolve",
+                        )
+                    ):
+                        hint = (
+                            "\nRemediation: Missing offline Gradle dependencies detected. "
+                            "Re-run with '--allow-network-dependencies' once to populate the local Gradle cache."
+                        )
+                    logs.append(
+                        f"Gradle task '{config.android.gradle_task}' failed with exit code {build_res.exit_code}."
+                    )
+                    return ProtectionResult(
+                        success=False,
+                        protected_artifact_path=None,
+                        logs=logs,
+                        error_message=(
+                            f"Gradle build task '{config.android.gradle_task}' failed "
+                            f"(exit code {build_res.exit_code}): {err_diag}{hint}"
+                        ),
+                        metadata={
+                            "error_type": "GradleExecutionError",
+                            "exit_code": str(build_res.exit_code),
+                            "is_simulated": str(build_res.is_simulated),
+                        },
+                    )
+
                 logs.append(
-                    "Offline mode enforced (--offline). Using local Gradle and Android dependency cache."
+                    f"Gradle task '{config.android.gradle_task}' succeeded in {build_res.duration_seconds:.2f}s."
                 )
 
-            build_res = active_runner.run_task(config.android.gradle_task)
-            if not build_res.success:
-                err_diag = build_res.stderr or build_res.stdout or "Unknown build error"
-                logs.append(
-                    f"Gradle task '{config.android.gradle_task}' failed with exit code {build_res.exit_code}."
+                # 8. Locate built APK artifact and validate
+                raw_apk = locate_build_apk(
+                    staging_dir=staging_dir,
+                    module_name=module_name,
+                    build_variant=config.android.build_variant,
                 )
-                return ProtectionResult(
-                    success=False,
-                    protected_artifact_path=None,
-                    logs=logs,
-                    error_message=f"Gradle build task '{config.android.gradle_task}' failed (exit code {build_res.exit_code}): {err_diag}",
-                    metadata={
-                        "exit_code": str(build_res.exit_code),
-                        "is_simulated": str(build_res.is_simulated),
-                    },
+                validate_apk_file(raw_apk)
+                logs.append(f"Located and validated release APK: '{raw_apk.name}'")
+
+                # 9. Locate R8 mapping file and securely retain if requested
+                mapping_file = locate_r8_mapping(
+                    staging_dir=staging_dir,
+                    module_name=module_name,
+                    build_variant=config.android.build_variant,
                 )
+                if mapping_file is None:
+                    logs.append(
+                        f"R8 mapping file was not generated for module '{module_name}' variant '{config.android.build_variant}'."
+                    )
+                    return ProtectionResult(
+                        success=False,
+                        protected_artifact_path=None,
+                        logs=logs,
+                        error_message=(
+                            f"Expected R8 obfuscation mapping file (mapping.txt) was not generated for module "
+                            f"'{module_name}' variant '{config.android.build_variant}'. Ensure R8 minification is active "
+                            "(minifyEnabled true) and '-dontobfuscate' is not disabling mapping output."
+                        ),
+                        metadata={"error_type": "MissingMappingFile"},
+                    )
 
-            logs.append(
-                f"Gradle task '{config.android.gradle_task}' succeeded in {build_res.duration_seconds:.2f}s."
-            )
-
-            # 8. Locate built APK artifact and validate
-            raw_apk = locate_build_apk(
-                staging_dir=staging_dir,
-                module_name=module_name,
-                build_variant=config.android.build_variant,
-            )
-            validate_apk_file(raw_apk)
-            logs.append(f"Located and validated release APK: '{raw_apk.name}'")
-
-            # 9. Locate R8 mapping file and securely retain if requested
-            mapping_file = locate_r8_mapping(
-                staging_dir=staging_dir,
-                module_name=module_name,
-                build_variant=config.android.build_variant,
-            )
-            if mapping_file:
                 logs.append(f"Located R8 mapping file: '{mapping_file.name}'")
                 if mapping_out is not None:
                     mapping_out_path = mapping_out.resolve()
@@ -739,157 +1056,217 @@ class AndroidPipelineAdapter(PlatformAdapter):
                             "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
                         )
                     mapping_out_path.parent.mkdir(parents=True, exist_ok=True)
-                    import shutil
-
                     shutil.copy2(mapping_file, mapping_out_path)
                     logs.append(
                         f"Securely retained R8 mapping file to '{mapping_out_path}'"
                     )
 
-            # 10. Align and sign within staging sandbox
-            signing_res = align_and_sign_apk(
-                unsigned_apk=raw_apk,
-                output_dir=staging_dir / "appshield_signing_temp",
-                signing_config=config.android.signing,
-                allow_production_signing=allow_production_signing,
-                overwrite=True,
-            )
-            logs.append(
-                f"Alignment and signing completed: signature_type='{signing_res.signature_type}'"
-            )
-
-            # Associate build result with the final aligned/signed APK for verification evidence
-            import dataclasses
-
-            build_res = dataclasses.replace(
-                build_res,
-                apk_path=signing_res.final_apk_path,
-                mapping_file=mapping_file or build_res.mapping_file,
-            )
-
-            # 11. Execute all 7 empirical verification checks
-            engine = VerificationEngine(project_name=config.project_name)
-            fixtures = (
-                expected_fixture_classes
-                if expected_fixture_classes is not None
-                else [
-                    "IdentifiableSecretService",
-                    "PaymentSecurityValidator",
-                ]
-            )
-            entries = expected_entry_points or ["MainActivity"]
-
-            verification_report = engine.run_all_checks(
-                apk_path=signing_res.final_apk_path,
-                mapping_file=mapping_file,
-                signing_config=config.android.signing,
-                build_result=build_res,
-                is_real_build=not build_res.is_simulated,
-                expected_fixture_classes=fixtures,
-                expected_entry_points=entries,
-            )
-
-            # 12. Generate and export audit reports
-            audit_report_dest = config.output.dir / "audit_report.json"
-            audit_report_dest.parent.mkdir(parents=True, exist_ok=True)
-            export_report_json(
-                verification_report,
-                audit_report_dest,
-                allow_overwrite=config.output.overwrite_existing,
-            )
-            logs.append(f"Generated verification audit report: '{audit_report_dest}'")
-
-            audit_md_dest = config.output.dir / "audit_report.md"
-            audit_md_dest.write_text(
-                format_report_markdown(verification_report), encoding="utf-8"
-            )
-
-            # 13. Verify original source tree immutability
-            if config.input.verify_source_immutability:
-                sandbox.verify_source_integrity()
+                # 10. Align and sign within staging sandbox
+                signing_res = align_and_sign_apk(
+                    unsigned_apk=raw_apk,
+                    output_dir=staging_dir / "appshield_signing_temp",
+                    signing_config=config.android.signing,
+                    allow_production_signing=allow_production_signing,
+                    overwrite=True,
+                )
                 logs.append(
-                    "Verified original source tree immutability (SHA-256 matches pre-build state)."
+                    f"Alignment and signing completed: signature_type='{signing_res.signature_type}'"
                 )
 
-            # 14. Release Acceptance & Simulation Barrier:
-            # Simulation/mocked execution is NEVER exported as a protected release
-            if build_res.is_simulated:
-                logs.append(
-                    "Simulation mode: Artifact export to production directory suppressed."
-                )
-                return ProtectionResult(
-                    success=False,
-                    protected_artifact_path=None,
-                    logs=logs,
-                    error_message=(
-                        "Simulated build artifacts are strictly prohibited from being exported as protected releases."
-                    ),
-                    metadata={
-                        "signature_type": signing_res.signature_type,
-                        "is_aligned": str(signing_res.is_aligned),
-                        "is_verified_protected": "False",
-                        "is_simulated": "True",
-                    },
-                    verification_report=verification_report,
-                    audit_report_path=audit_report_dest,
-                    is_verified_protected=False,
+                # Associate build result with the final aligned/signed APK for verification evidence
+                build_res = dataclasses.replace(
+                    build_res,
+                    apk_path=signing_res.final_apk_path,
+                    mapping_file=mapping_file or build_res.mapping_file,
                 )
 
-            # Protected release acceptance criteria
-            is_acceptable = verification_report.is_verified_protected
-            exported_path = None
-            if is_acceptable:
-                rel_signed_apk = signing_res.final_apk_path.relative_to(staging_dir)
-                exported_path = sandbox.export_artifact(
-                    staged_relative_path=rel_signed_apk,
-                    output_dir=config.output.dir,
-                    target_filename=target_filename,
+                # 11. Execute configured empirical verification checks
+                engine = VerificationEngine(project_name=config.project_name)
+                if expected_entry_points is not None:
+                    entries = expected_entry_points
+                else:
+                    entries = extract_manifest_entry_points(
+                        project_dir=staging_dir,
+                        module_name=module_name,
+                        build_file=inspection.build_file,
+                    )
+
+                verification_report = engine.run_all_checks(
+                    apk_path=signing_res.final_apk_path,
+                    mapping_file=mapping_file,
+                    signing_config=config.android.signing,
+                    build_result=build_res,
+                    is_real_build=not build_res.is_simulated,
+                    expected_fixture_classes=expected_fixture_classes,
+                    expected_entry_points=entries,
+                    verification_config=config.verification,
+                )
+
+                # 12. Generate and export audit reports
+                audit_report_dest = config.output.dir / "audit_report.json"
+                audit_report_dest.parent.mkdir(parents=True, exist_ok=True)
+                export_report_json(
+                    verification_report,
+                    audit_report_dest,
                     allow_overwrite=config.output.overwrite_existing,
                 )
                 logs.append(
-                    f"Exported verified protected artifact to '{exported_path}'"
+                    f"Generated verification audit report: '{audit_report_dest}'"
                 )
-            else:
-                logs.append(
-                    "Release acceptance failed: artifact did not meet all verified-protected criteria."
+
+                audit_md_dest = config.output.dir / "audit_report.md"
+                audit_md_dest.write_text(
+                    format_report_markdown(verification_report), encoding="utf-8"
                 )
-                if config.verification.fail_on_check_failure:
+
+                # 13. Verify original source tree immutability
+                if config.input.verify_source_immutability:
+                    sandbox.verify_source_integrity()
+                    logs.append(
+                        "Verified original source tree immutability (SHA-256 matches pre-build state)."
+                    )
+
+                # 14. Release Acceptance & Simulation Barrier:
+                # Simulation/mocked execution is NEVER exported as a protected release
+                if build_res.is_simulated:
+                    logs.append(
+                        "Simulation mode: Artifact export to production directory suppressed."
+                    )
                     return ProtectionResult(
                         success=False,
                         protected_artifact_path=None,
                         logs=logs,
                         error_message=(
-                            "Protection verification failed: artifact did not meet all verified-protected criteria."
+                            "Simulated build artifacts are strictly prohibited from being exported as protected releases."
                         ),
                         metadata={
                             "signature_type": signing_res.signature_type,
                             "is_aligned": str(signing_res.is_aligned),
                             "is_verified_protected": "False",
-                            "is_simulated": "False",
+                            "is_simulated": "True",
                         },
                         verification_report=verification_report,
                         audit_report_path=audit_report_dest,
                         is_verified_protected=False,
                     )
 
-            return ProtectionResult(
-                success=is_acceptable,
-                protected_artifact_path=exported_path,
-                logs=logs,
-                error_message=(
-                    None if is_acceptable else "Artifact was not verified as protected."
-                ),
-                metadata={
-                    "signature_type": signing_res.signature_type,
-                    "is_aligned": str(signing_res.is_aligned),
-                    "r8_mapping_found": str(mapping_file is not None),
-                    "r8_mapping_path": str(mapping_file) if mapping_file else "",
-                    "is_verified_protected": str(
-                        verification_report.is_verified_protected
+                # Protected release acceptance criteria
+                is_acceptable = verification_report.is_verified_protected
+                exported_path = None
+                if is_acceptable:
+                    rel_signed_apk = signing_res.final_apk_path.relative_to(staging_dir)
+                    exported_path = sandbox.export_artifact(
+                        staged_relative_path=rel_signed_apk,
+                        output_dir=config.output.dir,
+                        target_filename=target_filename,
+                        allow_overwrite=config.output.overwrite_existing,
+                    )
+                    logs.append(
+                        f"Exported verified protected artifact to '{exported_path}'"
+                    )
+                else:
+                    logs.append(
+                        "Release acceptance failed: artifact did not meet all verified-protected criteria."
+                    )
+                    if config.verification.fail_on_check_failure:
+                        return ProtectionResult(
+                            success=False,
+                            protected_artifact_path=None,
+                            logs=logs,
+                            error_message=(
+                                "Protection verification failed: artifact did not meet all verified-protected criteria."
+                            ),
+                            metadata={
+                                "signature_type": signing_res.signature_type,
+                                "is_aligned": str(signing_res.is_aligned),
+                                "is_verified_protected": "False",
+                                "is_simulated": "False",
+                            },
+                            verification_report=verification_report,
+                            audit_report_path=audit_report_dest,
+                            is_verified_protected=False,
+                        )
+
+                return ProtectionResult(
+                    success=is_acceptable,
+                    protected_artifact_path=exported_path,
+                    logs=logs,
+                    error_message=(
+                        None
+                        if is_acceptable
+                        else "Artifact was not verified as protected."
                     ),
-                    "is_simulated": "False",
+                    metadata={
+                        "signature_type": signing_res.signature_type,
+                        "is_aligned": str(signing_res.is_aligned),
+                        "r8_mapping_found": str(mapping_file is not None),
+                        "r8_mapping_path": str(mapping_file) if mapping_file else "",
+                        "is_verified_protected": str(
+                            verification_report.is_verified_protected
+                        ),
+                        "is_simulated": "False",
+                    },
+                    verification_report=verification_report,
+                    audit_report_path=audit_report_dest,
+                    is_verified_protected=verification_report.is_verified_protected,
+                )
+        except (OverwriteError, SourceImmutabilityError):
+            raise
+        except GradleTimeoutError as e:
+            err_msg = redact_secrets(str(e), secrets_to_redact)
+            logs.append(f"Gradle build timed out after {e.timeout_seconds:.1f}s.")
+            return ProtectionResult(
+                success=False,
+                protected_artifact_path=None,
+                logs=logs,
+                error_message=err_msg,
+                metadata={
+                    "error_type": "GradleTimeoutError",
+                    "timeout_seconds": str(e.timeout_seconds),
                 },
-                verification_report=verification_report,
-                audit_report_path=audit_report_dest,
-                is_verified_protected=verification_report.is_verified_protected,
+            )
+        except GradleExecutionError as e:
+            err_msg = redact_secrets(str(e), secrets_to_redact)
+            if config.android.offline and any(
+                tok in (err_msg + "\n" + e.stderr).lower()
+                for tok in (
+                    "not found in any of the following sources",
+                    "no cached version",
+                    "--offline",
+                    "could not resolve",
+                )
+            ):
+                err_msg += (
+                    "\nRemediation: Missing offline Gradle dependencies detected. "
+                    "Re-run with '--allow-network-dependencies' once to populate the local Gradle cache."
+                )
+            logs.append(f"Gradle build failed with exit code {e.exit_code}.")
+            return ProtectionResult(
+                success=False,
+                protected_artifact_path=None,
+                logs=logs,
+                error_message=err_msg,
+                metadata={
+                    "error_type": "GradleExecutionError",
+                    "exit_code": str(e.exit_code),
+                },
+            )
+        except (
+            GradleError,
+            SigningError,
+            AdapterError,
+            DexError,
+            MappingParseError,
+            SandboxError,
+            ConfigValidationError,
+            OSError,
+        ) as e:
+            err_msg = redact_secrets(str(e), secrets_to_redact)
+            logs.append(f"Pipeline error ({type(e).__name__}): {err_msg}")
+            return ProtectionResult(
+                success=False,
+                protected_artifact_path=None,
+                logs=logs,
+                error_message=err_msg,
+                metadata={"error_type": type(e).__name__},
             )

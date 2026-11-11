@@ -62,6 +62,36 @@ DEFAULT_IMMUTABILITY_EXCLUDE_PATTERNS: list[str] = [
 
 PROJECT_NAME_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
 ENV_VAR_REGEX = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+GRADLE_TASK_TOKEN_REGEX = re.compile(r"^[a-zA-Z0-9:_.-]+$")
+
+CANONICAL_VERIFICATION_CHECKS: tuple[str, ...] = (
+    "build_execution",
+    "apk_structure",
+    "symbol_renaming_ratio",
+    "signature_integrity",
+    "package_alignment",
+    "string_pool_inspection",
+    "structural_decompilation_info",
+)
+
+CHECK_KEY_TO_ID: dict[str, str] = {
+    "build_execution": "CHK-BLD-01",
+    "apk_structure": "CHK-APK-01",
+    "symbol_renaming_ratio": "CHK-SYM-01",
+    "signature_integrity": "CHK-SIG-01",
+    "package_alignment": "CHK-ALN-01",
+    "string_pool_inspection": "CHK-STR-01",
+    "structural_decompilation_info": "CHK-CMP-01",
+}
+
+MANDATORY_ACCEPTANCE_CHECK_IDS: frozenset[str] = frozenset(
+    {
+        "CHK-BLD-01",
+        "CHK-APK-01",
+        "CHK-SYM-01",
+        "CHK-ALN-01",
+    }
+)
 
 
 class AppShieldError(Exception):
@@ -125,16 +155,84 @@ class AndroidConfig:
 @dataclass
 class VerificationConfig:
     enabled: bool = True
-    fail_on_check_failure: bool = False
+    fail_on_check_failure: bool = True
     checks: list[str] = field(
-        default_factory=lambda: [
-            "symbol_renaming_ratio",
-            "string_pool_inspection",
-            "signature_integrity",
-            "package_alignment",
-            "structural_decompilation_info",
-        ]
+        default_factory=lambda: list(CANONICAL_VERIFICATION_CHECKS)
     )
+
+
+def validate_verification_checks(raw_checks: Any) -> list[str]:
+    """Validate configured verification check identifiers against the canonical registry."""
+    if not isinstance(raw_checks, list) or not all(
+        isinstance(c, str) for c in raw_checks
+    ):
+        raise ConfigValidationError(
+            "'verification.checks' must be a list of check name strings."
+        )
+
+    validated: list[str] = []
+    for check_name in raw_checks:
+        if check_name not in CHECK_KEY_TO_ID:
+            valid_list = ", ".join(CANONICAL_VERIFICATION_CHECKS)
+            raise ConfigValidationError(
+                f"Unknown verification check '{check_name}' in 'verification.checks'. "
+                f"Supported checks: {valid_list}."
+            )
+        if check_name not in validated:
+            validated.append(check_name)
+    return validated
+
+
+def validate_android_release_task(
+    gradle_task: str, build_variant: str = "release"
+) -> None:
+    """
+    Validate that the configured Android Gradle task and build variant represent
+    a supported release APK build (rejecting invalid tasks, debug builds, and AAB bundles).
+    """
+    if not isinstance(build_variant, str) or not build_variant.strip():
+        raise ConfigValidationError(
+            "Invalid 'android.build_variant': must be a non-empty string (e.g., 'release')."
+        )
+    variant_lower = build_variant.strip().lower()
+    if variant_lower == "debug" or variant_lower.endswith("debug"):
+        raise ConfigValidationError(
+            f"Unsupported Android build_variant '{build_variant}': AppShield only protects "
+            "release builds with R8 minification enabled, not debug variants."
+        )
+
+    if not isinstance(gradle_task, str) or not gradle_task.strip():
+        raise ConfigValidationError(
+            "Invalid 'android.gradle_task': must be a non-empty Gradle task name (e.g., 'assembleRelease')."
+        )
+
+    task_trimmed = gradle_task.strip()
+    if task_trimmed.startswith("-"):
+        raise ConfigValidationError(
+            f"Invalid 'android.gradle_task' '{gradle_task}': task names cannot start with '-'."
+        )
+    if not GRADLE_TASK_TOKEN_REGEX.match(task_trimmed):
+        raise ConfigValidationError(
+            f"Invalid 'android.gradle_task' '{gradle_task}': contains unsupported or unsafe characters."
+        )
+
+    task_leaf = task_trimmed.split(":")[-1]
+    leaf_lower = task_leaf.lower()
+    if "bundle" in leaf_lower or ".aab" in task_trimmed.lower() or "aab" == leaf_lower:
+        raise ConfigValidationError(
+            f"Unsupported Android Gradle task '{gradle_task}': Android App Bundles (.aab / 'bundle*' tasks) "
+            "are not supported yet. Configure an APK assembly task such as 'assembleRelease'."
+        )
+    if leaf_lower.endswith("debug"):
+        raise ConfigValidationError(
+            f"Unsupported Android Gradle task '{gradle_task}': debug builds are not supported for release "
+            "protection. Configure a release APK task such as 'assembleRelease'."
+        )
+    if "assemble" not in leaf_lower:
+        raise ConfigValidationError(
+            f"Unsupported Android Gradle task '{gradle_task}': AppShield requires an APK assembly task "
+            "(for example, 'assembleRelease' or ':app:assembleRelease')."
+        )
 
 
 @dataclass
@@ -372,6 +470,7 @@ def validate_and_parse_config(
 
         build_variant = raw_android.get("build_variant", "release")
         gradle_task = raw_android.get("gradle_task", "assembleRelease")
+        validate_android_release_task(gradle_task, build_variant)
 
         raw_r8_rules = raw_android.get("r8_rules_file")
         r8_rules_path = None
@@ -444,25 +543,23 @@ def validate_and_parse_config(
     if not isinstance(raw_ver, dict):
         raise ConfigValidationError("'verification' section must be a dictionary.")
 
-    ver_enabled = bool(raw_ver.get("enabled", True))
-    fail_on_failure = bool(raw_ver.get("fail_on_check_failure", False))
+    raw_enabled = raw_ver.get("enabled", True)
+    if not isinstance(raw_enabled, bool):
+        raise ConfigValidationError("'verification.enabled' must be a boolean.")
+    ver_enabled = raw_enabled
+
+    raw_fail_on = raw_ver.get("fail_on_check_failure", True)
+    if not isinstance(raw_fail_on, bool):
+        raise ConfigValidationError(
+            "'verification.fail_on_check_failure' must be a boolean."
+        )
+    fail_on_failure = raw_fail_on
+
     raw_checks = raw_ver.get("checks")
     if raw_checks is not None:
-        if not isinstance(raw_checks, list) or not all(
-            isinstance(c, str) for c in raw_checks
-        ):
-            raise ConfigValidationError(
-                "'verification.checks' must be a list of check name strings."
-            )
-        checks = list(raw_checks)
+        checks = validate_verification_checks(raw_checks)
     else:
-        checks = [
-            "symbol_renaming_ratio",
-            "string_pool_inspection",
-            "signature_integrity",
-            "package_alignment",
-            "structural_decompilation_info",
-        ]
+        checks = list(CANONICAL_VERIFICATION_CHECKS)
 
     verification_config = VerificationConfig(
         enabled=ver_enabled,

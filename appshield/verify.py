@@ -15,7 +15,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from appshield.config import OverwriteError, SigningConfig
+from appshield.config import (
+    CHECK_KEY_TO_ID,
+    MANDATORY_ACCEPTANCE_CHECK_IDS,
+    OverwriteError,
+    SigningConfig,
+    VerificationConfig,
+    validate_verification_checks,
+)
 from appshield.dex import ApkDexSummary, DexError, class_to_descriptor, inspect_apk_dex
 from appshield.gradle import GradleBuildResult
 from appshield.mapping import MappingParseError, R8MappingSummary, parse_r8_mapping
@@ -389,60 +396,100 @@ class VerificationEngine:
         ratio_pct = mapping.class_renaming_ratio * 100.0
         discrepancies: list[str] = []
 
-        # 2. Dual-evidence verification for fixture classes
+        if mapping.total_classes == 0:
+            discrepancies.append(
+                "R8 mapping.txt contains 0 class entries; cannot empirically verify symbol obfuscation."
+            )
+        elif mapping.renamed_classes_count == 0:
+            discrepancies.append(
+                f"R8 mapping.txt shows 0 renamed classes across {mapping.total_classes} classes (0.0% renaming ratio); "
+                "symbol obfuscation was not applied (check for '-dontobfuscate' or 'minifyEnabled false')."
+            )
+
+        # 2. Dual-evidence symbol verification:
+        #    When explicit target classes are provided (e.g., fixture validation), verify each one.
+        #    Otherwise (general Android project mode), verify renamed classes recorded in mapping.txt
+        #    against compiled DEX class_defs so arbitrary applications work without hardcoded names.
         fixture_classes = expected_fixture_classes or []
         verified_obfuscated_count = 0
         missing_retained_count = 0
+        generalized_checked_count = 0
+        verification_mode = (
+            "explicit_targets" if fixture_classes else "generalized_mapping"
+        )
 
-        for full_or_simple_name in fixture_classes:
-            # Find class mapping by exact name or substring suffix
-            target_mapping = None
-            for orig_name, cls_map in mapping.classes.items():
-                if orig_name == full_or_simple_name or orig_name.endswith(
-                    f".{full_or_simple_name}"
-                ):
-                    target_mapping = cls_map
-                    break
+        if fixture_classes:
+            for full_or_simple_name in fixture_classes:
+                target_mapping = None
+                for orig_name, cls_map in mapping.classes.items():
+                    if orig_name == full_or_simple_name or orig_name.endswith(
+                        f".{full_or_simple_name}"
+                    ):
+                        target_mapping = cls_map
+                        break
 
-            if target_mapping is None:
+                if target_mapping is None:
+                    discrepancies.append(
+                        f"Expected class '{full_or_simple_name}' was not found in R8 mapping.txt."
+                    )
+                    continue
+
+                orig_desc = class_to_descriptor(target_mapping.original_name)
+                obf_desc = class_to_descriptor(target_mapping.obfuscated_name)
+
+                if not target_mapping.is_renamed:
+                    discrepancies.append(
+                        f"Class '{target_mapping.original_name}' was kept unrenamed in mapping.txt."
+                    )
+                    continue
+
+                if orig_desc in dex_descriptors:
+                    discrepancies.append(
+                        f"Original un-obfuscated descriptor '{orig_desc}' still present in DEX class_defs!"
+                    )
+                    continue
+
+                if obf_desc in dex_descriptors:
+                    verified_obfuscated_count += 1
+                else:
+                    missing_retained_count += 1
+                    discrepancies.append(
+                        f"Class '{target_mapping.original_name}' is not retained in compiled DEX "
+                        f"(neither original nor mapped descriptor '{obf_desc}' found in DEX class_defs)."
+                    )
+        elif mapping.renamed_classes_count > 0:
+            renamed_entries = [
+                cls_map for cls_map in mapping.classes.values() if cls_map.is_renamed
+            ]
+            generalized_checked_count = len(renamed_entries)
+            leaked_originals: list[str] = []
+
+            for cls_map in renamed_entries:
+                orig_desc = class_to_descriptor(cls_map.original_name)
+                obf_desc = class_to_descriptor(cls_map.obfuscated_name)
+
+                if orig_desc in dex_descriptors:
+                    leaked_originals.append(orig_desc)
+                elif obf_desc in dex_descriptors:
+                    verified_obfuscated_count += 1
+
+            if leaked_originals:
+                preview = ", ".join(leaked_originals[:3])
                 discrepancies.append(
-                    f"Expected class '{full_or_simple_name}' was not found in R8 mapping.txt."
+                    f"Original un-obfuscated descriptor(s) still present in DEX class_defs: {preview}"
                 )
-                continue
 
-            orig_desc = class_to_descriptor(target_mapping.original_name)
-            obf_desc = class_to_descriptor(target_mapping.obfuscated_name)
-
-            # Check 1: Was it renamed in mapping?
-            if not target_mapping.is_renamed:
+            if verified_obfuscated_count == 0:
+                missing_retained_count = generalized_checked_count
                 discrepancies.append(
-                    f"Class '{target_mapping.original_name}' was kept unrenamed in mapping.txt."
-                )
-                continue
-
-            # Check 2: Original descriptor MUST NOT exist in DEX
-            if orig_desc in dex_descriptors:
-                discrepancies.append(
-                    f"Original un-obfuscated descriptor '{orig_desc}' still present in DEX class_defs!"
-                )
-                continue
-
-            # Check 3: Mapped obfuscated descriptor MUST exist in DEX
-            if obf_desc in dex_descriptors:
-                verified_obfuscated_count += 1
-            else:
-                # Do NOT mistake stripped/unreachable classes for obfuscation
-                missing_retained_count += 1
-                discrepancies.append(
-                    f"Class '{target_mapping.original_name}' is not retained in compiled DEX "
-                    f"(neither original nor mapped descriptor '{obf_desc}' found in DEX class_defs)."
+                    "None of the renamed obfuscated descriptors in R8 mapping.txt were found in compiled DEX "
+                    "class_defs (mapping does not match APK bytecode or classes were eliminated)."
                 )
 
-        # 3. Check entry points (e.g. MainActivity)
+        # 3. Check entry points when supplied (from project AndroidManifest.xml or caller)
         entry_points = expected_entry_points or []
         for ep in entry_points:
             ep_desc = class_to_descriptor(ep)
-            # Find entry point in mapping
             ep_mapping = None
             for orig_name, cls_map in mapping.classes.items():
                 if orig_name == ep or orig_name.endswith(f".{ep}"):
@@ -469,11 +516,18 @@ class VerificationEngine:
                 f"{len(discrepancies)} symbol verification discrepancy(ies) detected; "
                 f"renaming ratio: {ratio_pct:.1f}%"
             )
+        elif fixture_classes:
+            observed = (
+                f"Direct descriptor renaming verified: {ratio_pct:.1f}% classes renamed "
+                f"({mapping.renamed_classes_count}/{mapping.total_classes} in mapping); "
+                f"{verified_obfuscated_count} target symbol(s) confirmed renamed and present in DEX "
+                "(heuristic inference: symbol renaming raises reverse-engineering work factor)"
+            )
         else:
             observed = (
                 f"Direct descriptor renaming verified: {ratio_pct:.1f}% classes renamed "
                 f"({mapping.renamed_classes_count}/{mapping.total_classes} in mapping); "
-                f"{verified_obfuscated_count} fixture symbol(s) confirmed renamed and present in DEX "
+                f"{verified_obfuscated_count}/{generalized_checked_count} renamed class descriptor(s) verified in DEX "
                 "(heuristic inference: symbol renaming raises reverse-engineering work factor)"
             )
 
@@ -489,20 +543,30 @@ class VerificationEngine:
             details={
                 "evidence_classification": "VERIFIED (direct descriptor and mapping match)",
                 "security_inference": "HEURISTIC (renaming symbols increases reverse-engineering work factor but does not prevent decompilation or logic analysis)",
+                "verification_mode": verification_mode,
                 "total_mapping_classes": mapping.total_classes,
                 "renamed_mapping_classes": mapping.renamed_classes_count,
                 "renaming_ratio": round(mapping.class_renaming_ratio, 4),
                 "total_mapping_methods": mapping.total_methods,
                 "renamed_mapping_methods": mapping.renamed_methods_count,
                 "fixture_classes_checked": len(fixture_classes),
-                "fixture_classes_verified": verified_obfuscated_count,
-                "fixture_classes_missing": missing_retained_count,
+                "fixture_classes_verified": verified_obfuscated_count
+                if fixture_classes
+                else 0,
+                "fixture_classes_missing": missing_retained_count
+                if fixture_classes
+                else 0,
+                "generalized_classes_checked": generalized_checked_count,
+                "generalized_classes_verified": verified_obfuscated_count
+                if not fixture_classes
+                else 0,
+                "entry_points_checked": len(entry_points),
                 "discrepancies_count": len(discrepancies),
                 "has_discrepancies": bool(discrepancies),
             },
             recommendation=(
-                "Check ProGuard/R8 keep rules to ensure identifiable classes are not preserved, "
-                "and ensure test classes are referenced so they are not eliminated as dead code."
+                "Check ProGuard/R8 rules for '-dontobfuscate' or overly broad '-keep' directives, "
+                "and verify that mapping.txt matches the compiled APK."
                 if discrepancies
                 else None
             ),
@@ -836,6 +900,44 @@ class VerificationEngine:
             },
         )
 
+    def _build_disabled_check_result(
+        self,
+        check_id: str,
+        name: str,
+        category: str,
+        config_key: str,
+        verification_enabled: bool,
+        is_mandatory: bool,
+    ) -> ObjectiveCheckResult:
+        """Create a deterministic SKIPPED result for a check disabled by configuration."""
+        if not verification_enabled:
+            reason = "Verification is disabled in configuration ('verification.enabled: false')."
+        else:
+            reason = f"Check '{config_key}' was excluded in 'verification.checks' configuration."
+
+        rec = (
+            f"Enable '{config_key}' (this check is mandatory for Verified Protected release status)."
+            if is_mandatory
+            else f"Include '{config_key}' in 'verification.checks' to execute this inspection."
+        )
+        return ObjectiveCheckResult(
+            check_id=check_id,
+            name=name,
+            category=category,
+            outcome="UNSUPPORTED",
+            status="SKIPPED",
+            what_it_proves="Check was skipped by user configuration and provides no empirical evidence.",
+            what_it_does_not_prove="Does not prove protection criteria associated with this skipped check.",
+            observed_metric=reason,
+            details={
+                "disabled_by_config": True,
+                "verification_enabled": verification_enabled,
+                "config_key": config_key,
+                "mandatory_for_release": is_mandatory,
+            },
+            recommendation=rec,
+        )
+
     def run_all_checks(
         self,
         apk_path: Path,
@@ -846,12 +948,26 @@ class VerificationEngine:
         expected_fixture_classes: list[str] | None = None,
         expected_entry_points: list[str] | None = None,
         build_id: str | None = None,
+        verification_config: VerificationConfig | None = None,
     ) -> VerificationReport:
         """
-        Execute all 7 empirical verification checks and generate a structured audit report.
+        Execute configured empirical verification checks and generate a structured audit report.
         Ensures the mapping file and build artifacts belong to the exact build session.
         """
         resolved_apk = apk_path.resolve()
+
+        verification_enabled = (
+            verification_config.enabled if verification_config is not None else True
+        )
+        if verification_config is not None:
+            validated_keys = validate_verification_checks(verification_config.checks)
+            enabled_check_ids = (
+                {CHECK_KEY_TO_ID[k] for k in validated_keys}
+                if verification_enabled
+                else set()
+            )
+        else:
+            enabled_check_ids = set(CHECK_KEY_TO_ID.values())
 
         # Compute file SHA-256 and size
         if resolved_apk.is_file():
@@ -894,46 +1010,117 @@ class VerificationEngine:
                         f"Provided mapping file '{mapping_file.resolve()}' does not match build result mapping '{build_result.mapping_file.resolve()}'"
                     )
 
-        # Inspect DEX structures
+        # Inspect DEX structures only if any DEX-dependent check is enabled
+        dex_dependent_ids = {"CHK-APK-01", "CHK-SYM-01", "CHK-STR-01", "CHK-CMP-01"}
         dex_summary: ApkDexSummary | None = None
-        try:
-            dex_summary = inspect_apk_dex(resolved_apk)
-        except (DexError, OSError) as e:
-            dex_summary = ApkDexSummary(
-                dex_files_count=0,
-                dex_names=[],
-                total_classes_count=0,
-                total_strings_count=0,
-                unique_class_descriptors=[],
-                unique_strings=[],
-                dex_files=[],
-                errors=[str(e)],
-            )
+        if enabled_check_ids & dex_dependent_ids:
+            try:
+                dex_summary = inspect_apk_dex(resolved_apk)
+            except (DexError, OSError) as e:
+                dex_summary = ApkDexSummary(
+                    dex_files_count=0,
+                    dex_names=[],
+                    total_classes_count=0,
+                    total_strings_count=0,
+                    unique_class_descriptors=[],
+                    unique_strings=[],
+                    dex_files=[],
+                    errors=[str(e)],
+                )
 
-        # Parse R8 mapping if provided
+        # Parse R8 mapping if provided and symbol check is enabled
         mapping_summary: R8MappingSummary | None = None
-        if mapping_file is not None and mapping_file.is_file():
+        if (
+            "CHK-SYM-01" in enabled_check_ids
+            and mapping_file is not None
+            and mapping_file.is_file()
+        ):
             try:
                 mapping_summary = parse_r8_mapping(mapping_file)
             except (MappingParseError, OSError):
                 mapping_summary = None
 
-        # Execute checks
+        sig_required = signing_config is not None and signing_config.enabled
+
+        # Execute checks in canonical order; classify disabled checks cleanly as SKIPPED
         checks: list[ObjectiveCheckResult] = [
             self.check_bld_01(
                 build_result, is_real_build, evidence_errors=evidence_errors
+            )
+            if "CHK-BLD-01" in enabled_check_ids
+            else self._build_disabled_check_result(
+                "CHK-BLD-01",
+                "Actual Build Completion",
+                "build",
+                "build_execution",
+                verification_enabled,
+                True,
             ),
-            self.check_apk_01(resolved_apk, dex_summary),
+            self.check_apk_01(resolved_apk, dex_summary)
+            if "CHK-APK-01" in enabled_check_ids
+            else self._build_disabled_check_result(
+                "CHK-APK-01",
+                "APK Structure and DEX Validity",
+                "structure",
+                "apk_structure",
+                verification_enabled,
+                True,
+            ),
             self.check_sym_01(
                 dex_summary,
                 mapping_summary,
                 expected_fixture_classes,
                 expected_entry_points,
+            )
+            if "CHK-SYM-01" in enabled_check_ids
+            else self._build_disabled_check_result(
+                "CHK-SYM-01",
+                "Dual-Evidence Symbol Verification",
+                "symbols",
+                "symbol_renaming_ratio",
+                verification_enabled,
+                True,
             ),
-            self.check_sig_01(resolved_apk, signing_config),
-            self.check_aln_01(resolved_apk),
-            self.check_str_01(dex_summary),
-            self.check_cmp_01(dex_summary),
+            self.check_sig_01(resolved_apk, signing_config)
+            if "CHK-SIG-01" in enabled_check_ids
+            else self._build_disabled_check_result(
+                "CHK-SIG-01",
+                "Cryptographic Signature Verification",
+                "signature",
+                "signature_integrity",
+                verification_enabled,
+                sig_required,
+            ),
+            self.check_aln_01(resolved_apk)
+            if "CHK-ALN-01" in enabled_check_ids
+            else self._build_disabled_check_result(
+                "CHK-ALN-01",
+                "APK Alignment Verification",
+                "alignment",
+                "package_alignment",
+                verification_enabled,
+                True,
+            ),
+            self.check_str_01(dex_summary)
+            if "CHK-STR-01" in enabled_check_ids
+            else self._build_disabled_check_result(
+                "CHK-STR-01",
+                "String Constant Pool Scan",
+                "strings",
+                "string_pool_inspection",
+                verification_enabled,
+                False,
+            ),
+            self.check_cmp_01(dex_summary)
+            if "CHK-CMP-01" in enabled_check_ids
+            else self._build_disabled_check_result(
+                "CHK-CMP-01",
+                "Structural Decompilation Complexity Summary",
+                "complexity",
+                "structural_decompilation_info",
+                verification_enabled,
+                False,
+            ),
         ]
 
         summary_counts: dict[str, int] = {
@@ -947,46 +1134,29 @@ class VerificationEngine:
 
         # Determine if verified protected:
         # Requires:
-        # 1. Real toolchain build (is_real_build is True)
-        # 2. No check failures across all checks (summary_counts['failed'] == 0)
-        # 3. No inconclusive checks (summary_counts['inconclusive'] == 0)
-        # 4. CHK-BLD-01 PASS (build succeeded with matching evidence)
-        # 5. CHK-APK-01 PASS (valid APK archive and parseable DEX)
-        # 6. CHK-SYM-01 PASS (dual-evidence symbol obfuscation verified)
-        # 7. CHK-ALN-01 PASS (zip alignment verified; unsupported/skipped alignment is not sufficient)
-        # 8. CHK-SIG-01 PASS if signing is configured/enabled (signature verified)
-        bld_pass = any(
-            c.check_id == "CHK-BLD-01" and c.status == "PASS" for c in checks
-        )
-        apk_pass = any(
-            c.check_id == "CHK-APK-01" and c.status == "PASS" for c in checks
-        )
-        sym_pass = any(
-            c.check_id == "CHK-SYM-01" and c.status == "PASS" for c in checks
-        )
-        aln_pass = any(
-            c.check_id == "CHK-ALN-01" and c.status == "PASS" for c in checks
-        )
-
-        sig_required = signing_config is not None and signing_config.enabled
-        sig_pass = (
-            any(c.check_id == "CHK-SIG-01" and c.status == "PASS" for c in checks)
-            if sig_required
-            else True
+        # 1. Verification enabled (disabled verification NEVER claims verified protected)
+        # 2. Real toolchain build (is_real_build is True)
+        # 3. No check failures across all checks (summary_counts['failed'] == 0)
+        # 4. No inconclusive checks (summary_counts['inconclusive'] == 0)
+        # 5. All mandatory security checks actually executed and PASSED
+        #    (CHK-BLD-01, CHK-APK-01, CHK-SYM-01, CHK-ALN-01, plus CHK-SIG-01 when signing enabled)
+        mandatory_ids = set(MANDATORY_ACCEPTANCE_CHECK_IDS)
+        if sig_required:
+            mandatory_ids.add("CHK-SIG-01")
+        mandatory_all_pass = all(
+            any(c.check_id == req_id and c.status == "PASS" for c in checks)
+            for req_id in mandatory_ids
         )
 
         no_failures = summary_counts["failed"] == 0
         no_inconclusive = summary_counts["inconclusive"] == 0
 
         is_verified_protected = bool(
-            is_real_build
+            verification_enabled
+            and is_real_build
             and no_failures
             and no_inconclusive
-            and bld_pass
-            and apk_pass
-            and sym_pass
-            and aln_pass
-            and sig_pass
+            and mandatory_all_pass
         )
 
         # Signature type label
