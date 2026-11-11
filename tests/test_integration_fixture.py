@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -478,32 +479,74 @@ def test_setup_runbook_syntax_and_integrity() -> None:
     pwsh_exe = shutil.which("powershell.exe") or shutil.which("pwsh")
     if pwsh_exe:
         script_snippet = "\n".join(commands)
-        ps_cmd = (
-            "$errors = $null;\n"
-            f"[System.Management.Automation.Language.Parser]::ParseInput(@'\n{script_snippet}\n'@, [ref]$null, [ref]$errors);\n"
+        # 1. Pure AST syntax validation: parses commands without executing them (safe across Windows and Linux)
+        parse_cmd = (
+            "$tokens = $null; $errors = $null;\n"
+            f"[System.Management.Automation.Language.Parser]::ParseInput(@'\n{script_snippet}\n'@, [ref]$tokens, [ref]$errors);\n"
             "if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }\n"
-            "# Semantic expansion test\n"
-            "$tLocal = 'C:\\MockUser\\AppData\\Local'\n"
-            "$tProf  = 'C:\\MockUser'\n"
-            "$origL = $env:LOCALAPPDATA; $origP = $env:USERPROFILE\n"
-            "try {\n"
-            "    $env:LOCALAPPDATA = $tLocal; $env:USERPROFILE = $tProf\n"
-            '    $expSdk = "$env:LOCALAPPDATA\\Android\\Sdk"\n'
-            "    if ($expSdk -ne 'C:\\MockUser\\AppData\\Local\\Android\\Sdk') { exit 2 }\n"
-            "    $expMap = Join-Path $env:USERPROFILE '.appshield\\mappings\\sample_android_gradle_project'\n"
-            "    if ($expMap -ne 'C:\\MockUser\\.appshield\\mappings\\sample_android_gradle_project') { exit 3 }\n"
-            "} finally {\n"
-            "    $env:LOCALAPPDATA = $origL; $env:USERPROFILE = $origP\n"
-            "}\n"
             "exit 0"
         )
-        res = subprocess.run(
-            [pwsh_exe, "-NoProfile", "-Command", ps_cmd],
+        res_parse = subprocess.run(
+            [pwsh_exe, "-NoProfile", "-Command", parse_cmd],
             check=False,
             capture_output=True,
             text=True,
         )
-        assert res.returncode == 0, f"PowerShell validation failed: {res.stderr}"
+        assert res_parse.returncode == 0, (
+            f"PowerShell AST syntax validation failed: {res_parse.stderr}"
+        )
+
+        # 2. Also parse AST of all setup script files without execution
+        scripts_dir = Path(__file__).parent.parent / "scripts" / "setup"
+        for sf in [
+            scripts_dir / "download-toolchain.ps1",
+            scripts_dir / "enter-appshield-env.ps1",
+            scripts_dir / "configure-user-environment.ps1",
+            scripts_dir / "restore-user-environment.ps1",
+        ]:
+            if sf.is_file():
+                parse_file_cmd = (
+                    "$tokens = $null; $errors = $null;\n"
+                    f"[System.Management.Automation.Language.Parser]::ParseFile('{sf.resolve().as_posix()}', [ref]$tokens, [ref]$errors);\n"
+                    "if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }\n"
+                    "exit 0"
+                )
+                res_file = subprocess.run(
+                    [pwsh_exe, "-NoProfile", "-Command", parse_file_cmd],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                assert res_file.returncode == 0, (
+                    f"PowerShell AST ParseFile failed for {sf.name}: {res_file.stderr}"
+                )
+
+        # 3. Windows-specific semantic path expansion check: executed only on Windows hosts
+        if sys.platform == "win32":
+            sem_cmd = (
+                "$tLocal = 'C:\\MockUser\\AppData\\Local'\n"
+                "$tProf  = 'C:\\MockUser'\n"
+                "$origL = $env:LOCALAPPDATA; $origP = $env:USERPROFILE\n"
+                "try {\n"
+                "    $env:LOCALAPPDATA = $tLocal; $env:USERPROFILE = $tProf\n"
+                '    $expSdk = "$env:LOCALAPPDATA\\Android\\Sdk"\n'
+                "    if ($expSdk -ne 'C:\\MockUser\\AppData\\Local\\Android\\Sdk') { exit 2 }\n"
+                "    $expMap = Join-Path $env:USERPROFILE '.appshield\\mappings\\sample_android_gradle_project'\n"
+                "    if ($expMap -ne 'C:\\MockUser\\.appshield\\mappings\\sample_android_gradle_project') { exit 3 }\n"
+                "} finally {\n"
+                "    $env:LOCALAPPDATA = $origL; $env:USERPROFILE = $origP\n"
+                "}\n"
+                "exit 0"
+            )
+            res_sem = subprocess.run(
+                [pwsh_exe, "-NoProfile", "-Command", sem_cmd],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert res_sem.returncode == 0, (
+                f"PowerShell semantic validation failed: {res_sem.stderr}"
+            )
 
 
 def test_runbook_commands_and_paths() -> None:

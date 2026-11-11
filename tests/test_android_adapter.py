@@ -592,8 +592,20 @@ def test_stage_and_protect_stops_on_missing_prerequisites(tmp_path: Path):
     )
     adapter = AndroidPipelineAdapter()
 
-    # The current host environment lacks JDK 17 / Android SDK
-    result = adapter.stage_and_protect(config)
+    missing_prereqs = [
+        PrerequisiteCheck(
+            tool_name="Gradle Build Tool",
+            is_available=False,
+            detected_version=None,
+            target_version="8.2",
+            required=True,
+            remediation_hint="Install Gradle 8.2 or configure wrapper.",
+            validated_live=False,
+        )
+    ]
+    with patch.object(adapter, "check_prerequisites", return_value=missing_prereqs):
+        result = adapter.stage_and_protect(config)
+
     assert result.success is False
     assert result.protected_artifact_path is None
     assert (
@@ -602,6 +614,132 @@ def test_stage_and_protect_stops_on_missing_prerequisites(tmp_path: Path):
     )
     # Confirm no fake or simulated artifact was created
     assert not dist_dir.exists() or len(list(dist_dir.iterdir())) == 0
+
+
+def test_stage_and_protect_stops_on_incompatible_gradle(tmp_path: Path):
+    """Verify stage_and_protect halts when Gradle is present but incompatible."""
+    dist_dir = tmp_path / "dist"
+    config = AppShieldConfig(
+        version="1.0",
+        project_name="sample_android_gradle_project",
+        platform="android",
+        input=InputConfig(project_dir=FIXTURE_DIR),
+        output=OutputConfig(dir=dist_dir),
+    )
+    adapter = AndroidPipelineAdapter()
+
+    incompatible_gradle = [
+        PrerequisiteCheck(
+            tool_name="Gradle Build Tool",
+            is_available=False,
+            detected_version="7.5",
+            target_version="8.2",
+            required=True,
+            remediation_hint="Upgrade Gradle to version 8.2 or newer.",
+            validated_live=False,
+        )
+    ]
+    with patch.object(adapter, "check_prerequisites", return_value=incompatible_gradle):
+        result = adapter.stage_and_protect(config)
+
+    assert result.success is False
+    assert (
+        "missing required toolchain prerequisites"
+        in (result.error_message or "").lower()
+    )
+    assert "Gradle Build Tool" in (result.error_message or "")
+
+
+def test_stage_and_protect_stops_on_missing_android_sdk(tmp_path: Path):
+    """Verify stage_and_protect halts when Gradle is present but Android SDK Platform 34 is missing."""
+    dist_dir = tmp_path / "dist"
+    config = AppShieldConfig(
+        version="1.0",
+        project_name="sample_android_gradle_project",
+        platform="android",
+        input=InputConfig(project_dir=FIXTURE_DIR),
+        output=OutputConfig(dir=dist_dir),
+    )
+    adapter = AndroidPipelineAdapter()
+
+    missing_sdk = [
+        PrerequisiteCheck(
+            tool_name="Gradle Build Tool",
+            is_available=True,
+            detected_version="8.2",
+            target_version="8.2",
+            required=True,
+            remediation_hint="",
+            validated_live=False,
+        ),
+        PrerequisiteCheck(
+            tool_name="Android SDK Platform 34",
+            is_available=False,
+            detected_version=None,
+            target_version="android-34",
+            required=True,
+            remediation_hint="Install platforms;android-34 via sdkmanager.",
+            validated_live=False,
+        ),
+    ]
+    with patch.object(adapter, "check_prerequisites", return_value=missing_sdk):
+        result = adapter.stage_and_protect(config)
+
+    assert result.success is False
+    assert (
+        "missing required toolchain prerequisites"
+        in (result.error_message or "").lower()
+    )
+    assert "Android SDK Platform 34" in (result.error_message or "")
+
+
+def test_stage_and_protect_agp_dependencies_unavailable_offline(tmp_path: Path):
+    """Verify clean failure when Gradle is present but AGP dependencies are missing in offline cache."""
+    from appshield.gradle import GradleBuildResult
+
+    dist_dir = tmp_path / "dist"
+    config = AppShieldConfig(
+        version="1.0",
+        project_name="sample_android_gradle_project",
+        platform="android",
+        input=InputConfig(project_dir=FIXTURE_DIR),
+        output=OutputConfig(dir=dist_dir),
+    )
+    adapter = AndroidPipelineAdapter()
+
+    all_present = [
+        PrerequisiteCheck(
+            tool_name="Gradle Build Tool",
+            is_available=True,
+            detected_version="8.2",
+            target_version="8.2",
+            required=True,
+            remediation_hint="",
+        ),
+        PrerequisiteCheck(
+            tool_name="Android SDK Platform 34",
+            is_available=True,
+            detected_version="34",
+            target_version="34",
+            required=True,
+            remediation_hint="",
+        ),
+    ]
+    mock_runner = MagicMock()
+    mock_runner.run_task.return_value = GradleBuildResult(
+        success=False,
+        exit_code=1,
+        stdout="",
+        stderr="Plugin [id: 'com.android.application', version: '8.2.2'] was not found in any of the following sources: Google, MavenRepo",
+        duration_seconds=1.5,
+        command=["gradle", "assembleRelease", "--offline"],
+        is_simulated=False,
+    )
+    with patch.object(adapter, "check_prerequisites", return_value=all_present):
+        result = adapter.stage_and_protect(config, runner=mock_runner)
+
+    assert result.success is False
+    assert "com.android.application" in (result.error_message or "")
 
 
 def test_stage_and_protect_mocked_end_to_end_success(tmp_path: Path):

@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from appshield.adapters.android import AndroidPipelineAdapter
-from appshield.adapters.base import ProtectionResult
+from appshield.adapters.base import PrerequisiteCheck, ProtectionResult
 from appshield.cli import main
 from appshield.config import (
     AppShieldConfig,
@@ -833,8 +833,20 @@ class TestErrorAndSecurityEdgeCases:
         )
 
         adapter = AndroidPipelineAdapter()
-        # Default runner triggers check_prerequisites
-        result = adapter.stage_and_protect(config=config, runner=None)
+        missing_prereqs = [
+            PrerequisiteCheck(
+                tool_name="Gradle Build Tool",
+                is_available=False,
+                detected_version=None,
+                target_version="8.2",
+                required=True,
+                remediation_hint="Install Gradle 8.2 or configure wrapper.",
+                validated_live=False,
+            )
+        ]
+        with patch.object(adapter, "check_prerequisites", return_value=missing_prereqs):
+            result = adapter.stage_and_protect(config=config, runner=None)
+
         assert result.success is False
         assert "missing required toolchain prerequisites" in (
             result.error_message or ""
@@ -901,16 +913,22 @@ class TestCliEndToEndFlow:
 
         # Now verify the generated artifact with appshield verify
         audit_out = tmp_path / "verify_audit.json"
-        code_verify = main(
-            [
-                "verify",
-                str(target_apk),
-                "-m",
-                str(mapping_file),
-                "-o",
-                str(audit_out),
-            ]
-        )
+        with (
+            patch(
+                "appshield.verify.find_zipalign", return_value=Path("/mock/zipalign")
+            ),
+            patch("appshield.verify.verify_zipalign", return_value=True),
+        ):
+            code_verify = main(
+                [
+                    "verify",
+                    str(target_apk),
+                    "-m",
+                    str(mapping_file),
+                    "-o",
+                    str(audit_out),
+                ]
+            )
 
         assert code_verify == 0
         captured_verify = capsys.readouterr()

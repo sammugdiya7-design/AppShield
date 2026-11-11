@@ -351,7 +351,8 @@ def test_cli_verify_success_with_valid_apk(tmp_path: Path, capsys):
         zf.writestr("AndroidManifest.xml", b"<dummy/>")
         zf.writestr("classes.dex", dex_bytes)
 
-    code = main(["verify", str(apk_file)])
+    with patch("appshield.verify.find_zipalign", return_value=None):
+        code = main(["verify", str(apk_file)])
     assert code == 0
     captured = capsys.readouterr()
     assert "AppShield Empirical Verification Report" in captured.out
@@ -382,16 +383,17 @@ com.example.sample.MainActivity -> MainActivity:
     )
     json_out = tmp_path / "report.json"
 
-    code = main(
-        [
-            "verify",
-            str(apk_file),
-            "-m",
-            str(mapping_file),
-            "-o",
-            str(json_out),
-        ]
-    )
+    with patch("appshield.verify.find_zipalign", return_value=None):
+        code = main(
+            [
+                "verify",
+                str(apk_file),
+                "-m",
+                str(mapping_file),
+                "-o",
+                str(json_out),
+            ]
+        )
     assert code == 0
     assert json_out.is_file()
     data = json.loads(json_out.read_text(encoding="utf-8"))
@@ -452,11 +454,82 @@ def test_cli_verify_allows_output_overwrite_with_flag(tmp_path: Path, capsys):
     existing_out = tmp_path / "standalone_audit.json"
     existing_out.write_text("prior report content", encoding="utf-8")
 
-    code = main(["verify", str(apk_file), "-o", str(existing_out), "--overwrite"])
+    with patch("appshield.verify.find_zipalign", return_value=None):
+        code = main(["verify", str(apk_file), "-o", str(existing_out), "--overwrite"])
     assert code == 0
     captured = capsys.readouterr()
     assert f"Audit report exported to: '{existing_out.resolve()}'" in captured.out
     assert existing_out.read_text(encoding="utf-8") != "prior report content"
+
+
+def test_cli_verify_with_aligned_apk_passes(tmp_path: Path, capsys):
+    """'appshield verify' reports PASS on CHK-ALN-01 and exits 0 when zipalign confirms alignment."""
+    import zipfile
+
+    from appshield.dex import create_synthetic_dex
+
+    apk_file = tmp_path / "aligned_app.apk"
+    with zipfile.ZipFile(apk_file, "w") as zf:
+        zf.writestr("AndroidManifest.xml", b"<dummy/>")
+        zf.writestr("classes.dex", create_synthetic_dex(["com.example.MainActivity"]))
+
+    with (
+        patch(
+            "appshield.verify.find_zipalign", return_value=Path("/mock/bin/zipalign")
+        ),
+        patch("appshield.verify.verify_zipalign", return_value=True),
+    ):
+        code = main(["verify", str(apk_file)])
+
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "[PASS] CHK-ALN-01" in captured.out
+    assert "4-byte zip alignment verified successfully" in captured.out
+
+
+def test_cli_verify_with_unaligned_apk_fails(tmp_path: Path, capsys):
+    """'appshield verify' reports FAIL on CHK-ALN-01 and exits 1 when zipalign detects unaligned zip."""
+    import zipfile
+
+    from appshield.dex import create_synthetic_dex
+
+    apk_file = tmp_path / "unaligned_app.apk"
+    with zipfile.ZipFile(apk_file, "w") as zf:
+        zf.writestr("AndroidManifest.xml", b"<dummy/>")
+        zf.writestr("classes.dex", create_synthetic_dex(["com.example.MainActivity"]))
+
+    with (
+        patch(
+            "appshield.verify.find_zipalign", return_value=Path("/mock/bin/zipalign")
+        ),
+        patch("appshield.verify.verify_zipalign", return_value=False),
+    ):
+        code = main(["verify", str(apk_file)])
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "[FAIL] CHK-ALN-01" in captured.out
+    assert "Verification FAILED: 1 objective check(s) failed." in captured.out
+
+
+def test_cli_verify_with_missing_zipalign_skipped(tmp_path: Path, capsys):
+    """'appshield verify' reports SKIPPED on CHK-ALN-01 and exits 0 when zipalign is missing."""
+    import zipfile
+
+    from appshield.dex import create_synthetic_dex
+
+    apk_file = tmp_path / "app_no_zipalign.apk"
+    with zipfile.ZipFile(apk_file, "w") as zf:
+        zf.writestr("AndroidManifest.xml", b"<dummy/>")
+        zf.writestr("classes.dex", create_synthetic_dex(["com.example.MainActivity"]))
+
+    with patch("appshield.verify.find_zipalign", return_value=None):
+        code = main(["verify", str(apk_file)])
+
+    assert code == 0
+    captured = capsys.readouterr()
+    assert "[SKIPPED] CHK-ALN-01" in captured.out
+    assert "zipalign tool not found" in captured.out
 
 
 def test_cli_protect_cli_overrides(tmp_path: Path, capsys):
