@@ -157,14 +157,16 @@ Post-protection verification replaces subjective marketing scores with empirical
 
 ### Strict Status Separation & Configuration Enforcement:
 - **`is_verified_protected`**: Set to `True` only when `verification.enabled` is `True`, all mandatory core checks (`CHK-BLD-01`, `CHK-APK-01`, `CHK-SYM-01`, `CHK-ALN-01`, plus `CHK-SIG-01` when signing is enabled) are executed and pass with 0 failures and 0 inconclusive checks.
-- **Anti-Bypass Gate**: Excluding mandatory checks in `verification.checks` or setting `verification.enabled: false` marks skipped checks cleanly as `SKIPPED` and prevents `is_verified_protected = True`.
+- **Mapping Consistency & Build Provenance**: `CHK-SYM-01` binds R8 `mapping.txt` to the current protection run (`mapping_sha256` and post-`build_started_at` timestamp), rejects unreadable/malformed mappings cleanly, and fails stale, single-coincidental-match, or different-build mappings via bidirectional DEX descriptor corroboration while accommodating legitimate R8 dead-code elimination and kept classes.
+- **Anti-Bypass & `fail_on_check_failure` Contract**: `evaluate_verification_policy` ensures mandatory core check failures or `SKIPPED` states ALWAYS return exit `1` (`REJECTED`) across both `protect` and `verify`. Setting `fail_on_check_failure: false` only lets non-mandatory check failures exit `0` (`UNVERIFIED`), and never exports an unverified APK.
 - **`is_installation_ready`**: Set to `False` for unsigned APKs, honestly reflecting that the Android OS Package Manager rejects unsigned packages upon installation.
 
 ---
 
-## 9. Failure and Simulation Barriers
+## 9. Failure, Source Integrity, and Simulation Barriers
 
 1. **Simulation Barrier**: Simulated or mocked adapters used during unit tests are strictly prohibited from exporting artifacts to production release paths (`dist/protected/`).
-2. **Structured Error Handling**: CLI commands (`protect`, `verify`, `doctor`, `info`) catch adapter, Gradle, signing, DEX, mapping, sandbox, overwrite, immutability, and config errors cleanly, returning exit code `1` with actionable hints and redacted secrets rather than raw Python tracebacks.
-3. **Atomic Rollback**: If compilation, R8 execution, or signing fails, temporary staging workspaces are automatically purged, preventing partial or corrupted artifacts from reaching release destinations.
-4. **Overwrite Safeguards**: Output artifacts, standalone audit reports, and private mapping files are protected by `OverwriteError`. They will not overwrite existing files without explicit authorization (`--overwrite`).
+2. **Pre-Export Source Integrity Check & Failure Preservation**: `AndroidPipelineAdapter.stage_and_protect()` verifies original source tree SHA-256 integrity BEFORE writing audit reports, retained mappings, or protected APKs, and also checks source integrity on failed/exception paths. `SandboxManager.__exit__` always preserves the original operation exception while surfacing any concurrent integrity violation via `integrity_violation`, warnings, and exception notes.
+3. **Structured Error Handling**: CLI commands (`protect`, `verify`, `doctor`, `info`) catch adapter, Gradle, signing, DEX, mapping, sandbox, overwrite, immutability, IO, and config errors cleanly, distinguishing operational failures (`exit 1`) from verification outcomes without raw tracebacks.
+4. **Atomic Rollback**: If compilation, R8 execution, or signing fails, temporary staging workspaces are automatically purged, preventing partial or corrupted artifacts from reaching release destinations.
+5. **Overwrite Safeguards**: Output artifacts, standalone audit reports, and private mapping files are protected by `OverwriteError`. They will not overwrite existing files without explicit authorization (`--overwrite`).

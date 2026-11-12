@@ -901,9 +901,10 @@ class TestVerificationConfigEnforcement:
             code_lenient = main(["verify", str(apk), "-c", str(cfg_lenient)])
 
         assert code_strict == 1
-        assert code_lenient == 0
+        assert code_lenient == 1
         out = capsys.readouterr().out
         assert "[SKIPPED] CHK-SYM-01" in out
+        assert "REJECTED" in out
 
 
 class TestDoctorAccuracyAndOfflineCache:

@@ -32,6 +32,7 @@ import stat
 import sys
 import tempfile
 import uuid
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -351,6 +352,7 @@ class SandboxManager:
         self.initial_manifest: SourceManifest | None = None
         self.is_staged: bool = False
         self._cleaned_up: bool = False
+        self.integrity_violation: SourceImmutabilityError | None = None
 
     @classmethod
     def from_config(
@@ -466,9 +468,12 @@ class SandboxManager:
 
         if not is_identical:
             err_details = "\n  - ".join(discrepancies)
-            raise SourceImmutabilityError(
+            err = SourceImmutabilityError(
                 f"Source preservation violation detected! The original source directory was modified:\n  - {err_details}"
             )
+            self.integrity_violation = err
+            raise err
+        self.integrity_violation = None
 
     def export_artifact(
         self,
@@ -535,13 +540,61 @@ class SandboxManager:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
+        integrity_err: SourceImmutabilityError | None = None
+        cleanup_err: Exception | None = None
         try:
-            # Verify source immutability if no exception occurred, or still check
-            if exc_type is None:
-                self.verify_source_integrity()
+            # Verify source immutability on BOTH normal and failed/exception paths
+            if self.verify_source_immutability and self.initial_manifest is not None:
+                try:
+                    self.verify_source_integrity()
+                except SourceImmutabilityError as err:
+                    integrity_err = err
+                    self.integrity_violation = err
         finally:
             if self.cleanup_on_exit:
-                self.cleanup()
+                try:
+                    self.cleanup()
+                except (OSError, SandboxError, RuntimeError) as err:
+                    cleanup_err = err
+
+        if exc_val is not None:
+            # Preserve the original operation exception while surfacing secondary failures loudly
+            if integrity_err is not None:
+                add_note = getattr(exc_val, "add_note", None)
+                if callable(add_note):
+                    add_note(
+                        f"Source integrity violation also detected: {integrity_err}"
+                    )
+                warnings.warn(
+                    f"Source integrity violation detected during failed operation: {integrity_err}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            if cleanup_err is not None:
+                add_note = getattr(exc_val, "add_note", None)
+                if callable(add_note):
+                    add_note(f"Staging cleanup error also occurred: {cleanup_err}")
+                warnings.warn(
+                    f"Staging cleanup error during failed operation: {cleanup_err}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            return
+
+        if integrity_err is not None:
+            if cleanup_err is not None:
+                add_note = getattr(integrity_err, "add_note", None)
+                if callable(add_note):
+                    add_note(f"Staging cleanup error also occurred: {cleanup_err}")
+                warnings.warn(
+                    f"Staging cleanup error while reporting source integrity violation: {cleanup_err}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+            raise integrity_err
+
+        if cleanup_err is not None:
+            raise cleanup_err
 
 
 # Alias for spec consistency

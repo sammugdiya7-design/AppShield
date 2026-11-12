@@ -104,11 +104,29 @@ def parse_r8_mapping(content_or_path: str | Path) -> R8MappingSummary:
     """
     if isinstance(content_or_path, Path):
         resolved_path = content_or_path.resolve()
-        if not resolved_path.is_file():
+        if not resolved_path.exists():
             raise FileNotFoundError(f"Mapping file not found: '{resolved_path}'")
-        text = resolved_path.read_text(encoding="utf-8", errors="replace")
+        if not resolved_path.is_file():
+            raise MappingParseError(
+                f"Mapping path is not a regular file: '{resolved_path}'"
+            )
+        raw_bytes = resolved_path.read_bytes()
+        if b"\x00" in raw_bytes:
+            raise MappingParseError(
+                f"Mapping file '{resolved_path.name}' contains binary NUL bytes and cannot be parsed as R8 mapping text."
+            )
+        try:
+            text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise MappingParseError(
+                f"Mapping file '{resolved_path.name}' is not valid UTF-8 text: {e}"
+            ) from e
     else:
         text = content_or_path
+        if "\x00" in text:
+            raise MappingParseError(
+                "Mapping text contains binary NUL bytes and cannot be parsed as R8 mapping text."
+            )
 
     lines = text.splitlines()
     classes: dict[str, ClassMapping] = {}
@@ -131,12 +149,12 @@ def parse_r8_mapping(content_or_path: str | Path) -> R8MappingSummary:
             classes[current_class_orig] = mapping
             obf_to_orig[current_class_obf] = current_class_orig
 
-    for line in lines:
+    for line_no, line in enumerate(lines, start=1):
         stripped = line.strip()
         if not stripped:
             continue
 
-        # Header metadata comments (e.g. "# compiler: R8", "# compiler_version: 8.2.2")
+        # Header or inline R8 metadata comments (e.g. "# compiler: R8", "# {\"id\":...}")
         if stripped.startswith("#"):
             meta_match = COMMENT_META_REGEX.match(stripped)
             if meta_match:
@@ -146,7 +164,7 @@ def parse_r8_mapping(content_or_path: str | Path) -> R8MappingSummary:
 
         # Class definition line: "com.example.Foo -> a.b.c:"
         class_match = CLASS_LINE_REGEX.match(stripped)
-        if class_match:
+        if class_match and not line[:1].isspace():
             commit_current_class()
             current_class_orig = class_match.group(1)
             current_class_obf = class_match.group(2)
@@ -154,9 +172,11 @@ def parse_r8_mapping(content_or_path: str | Path) -> R8MappingSummary:
             current_fields = []
             continue
 
-        # If not inside a class block, skip unrecognized non-comment lines
-        if current_class_orig is None:
-            continue
+        # Unindented or pre-class non-comment lines that are not valid class mappings are malformed
+        if current_class_orig is None or not line[:1].isspace():
+            raise MappingParseError(
+                f"Malformed R8 mapping class entry at line {line_no}: '{stripped[:80]}'"
+            )
 
         # Method line: "1:3:void foo(int) -> a" or "void foo() -> a"
         method_match = METHOD_LINE_REGEX.match(line)
@@ -191,6 +211,21 @@ def parse_r8_mapping(content_or_path: str | Path) -> R8MappingSummary:
                 )
             )
             continue
+
+        # Validate extended R8 member syntax (e.g. outlined/inlined frames) has valid 'lhs -> rhs'
+        if " -> " not in stripped:
+            raise MappingParseError(
+                f"Malformed R8 mapping member entry at line {line_no}: '{stripped[:80]}'"
+            )
+        lhs_part, rhs_part = stripped.split(" -> ", 1)
+        if (
+            not lhs_part.strip()
+            or not rhs_part.strip()
+            or rhs_part.strip().endswith(":")
+        ):
+            raise MappingParseError(
+                f"Malformed R8 mapping member entry at line {line_no}: '{stripped[:80]}'"
+            )
 
     # Commit the last class
     commit_current_class()

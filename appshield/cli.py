@@ -31,6 +31,7 @@ from appshield.mapping import MappingParseError
 from appshield.signing import SigningError
 from appshield.verify import (
     VerificationEngine,
+    evaluate_verification_policy,
     export_report_json,
     format_report_terminal,
 )
@@ -393,8 +394,9 @@ def cmd_protect(
         SigningError,
         DexError,
         MappingParseError,
+        OSError,
     ) as e:
-        print(f"Protection Error ({type(e).__name__}): {e}", file=sys.stderr)
+        print(f"Operational Error ({type(e).__name__}): {e}", file=sys.stderr)
         return 1
 
     for log_msg in result.logs:
@@ -407,9 +409,23 @@ def cmd_protect(
     print("-----------------------------------------------------------------")
     if not result.success:
         err_msg = result.error_message or "Protection pipeline failed"
+        print("Verification Status: REJECTED")
         print(f"Protection FAILED: {err_msg}", file=sys.stderr)
         return 1
 
+    if result.protected_artifact_path is None:
+        print(
+            "Verification Status: UNVERIFIED (Unverified artifact was NOT exported as protected)"
+        )
+        print(
+            "Protection completed WITHOUT exporting protected APK "
+            "(command exited 0 per 'verification.fail_on_check_failure: false' on non-mandatory check failure)."
+        )
+        if result.audit_report_path:
+            print(f"Audit Report: '{result.audit_report_path}'")
+        return 0
+
+    print("Verification Status: PROTECTED")
     print(f"Protection SUCCEEDED: '{result.protected_artifact_path}'")
     if result.verification_report is not None:
         print(
@@ -437,14 +453,24 @@ def cmd_verify(
     resolved_artifact = artifact_path.resolve()
     if not resolved_artifact.exists():
         print(
-            f"Error: Target artifact not found: '{resolved_artifact}'",
+            f"Operational Error: Target artifact not found: '{resolved_artifact}'",
             file=sys.stderr,
         )
         return 1
 
     if not resolved_artifact.is_file():
         print(
-            f"Error: Target path is not a file: '{resolved_artifact}'",
+            f"Operational Error: Target path is not a file: '{resolved_artifact}'",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        with open(resolved_artifact, "rb") as af:
+            af.read(1)
+    except OSError as e:
+        print(
+            f"Operational Error (ArtifactUnreadable): Cannot read target artifact '{resolved_artifact}': {e}",
             file=sys.stderr,
         )
         return 1
@@ -454,13 +480,22 @@ def cmd_verify(
         resolved_mapping = mapping_file.resolve()
         if not resolved_mapping.exists():
             print(
-                f"Error: Mapping file not found: '{resolved_mapping}'",
+                f"Operational Error: Mapping file not found: '{resolved_mapping}'",
                 file=sys.stderr,
             )
             return 1
         if not resolved_mapping.is_file():
             print(
-                f"Error: Mapping path is not a file: '{resolved_mapping}'",
+                f"Operational Error: Mapping path is not a file: '{resolved_mapping}'",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            with open(resolved_mapping, "rb") as mf:
+                mf.read(1)
+        except OSError as e:
+            print(
+                f"Operational Error (MappingFileUnreadable): Cannot read R8 mapping file '{resolved_mapping}': {e}",
                 file=sys.stderr,
             )
             return 1
@@ -495,8 +530,9 @@ def cmd_verify(
         SigningError,
         DexError,
         MappingParseError,
+        OSError,
     ) as e:
-        print(f"Verification Error ({type(e).__name__}): {e}", file=sys.stderr)
+        print(f"Operational Error ({type(e).__name__}): {e}", file=sys.stderr)
         return 1
 
     print()
@@ -511,38 +547,31 @@ def cmd_verify(
         except OverwriteError as e:
             print(f"Overwrite Protection Error: {e}", file=sys.stderr)
             return 1
-
-    failed_count = report.summary.get("failed", 0)
-    ver_enabled = (
-        verification_config.enabled if verification_config is not None else True
-    )
-    fail_on_failure = (
-        verification_config.fail_on_check_failure
-        if verification_config is not None
-        else True
-    )
-
-    if not report.is_verified_protected:
-        if not ver_enabled:
+        except OSError as e:
             print(
-                "\nNotice: Verification is disabled in configuration ('verification.enabled: false'); "
-                "artifact is NOT designated as a verified protected release."
+                f"Operational Error (ReportExportFailed): Failed to write audit report '{output_path}': {e}",
+                file=sys.stderr,
             )
-        elif failed_count == 0:
-            print(
-                "\nNotice: Artifact inspection succeeded (0 check failures), but artifact is NOT "
-                "designated as a verified protected release (requires all mandatory checks passing in an attached toolchain build session)."
-            )
-        else:
-            print(f"\nVerification FAILED: {failed_count} objective check(s) failed.")
+            return 1
+
+    policy = evaluate_verification_policy(
+        report,
+        verification_config,
+        require_build_check=False,
+    )
+
+    if policy.status_label == "PROTECTED":
+        print("\nVerification Status: PROTECTED")
+        print("Verified Protected Release: YES")
+    elif policy.status_label == "STATIC_PASSED":
+        print(f"\nVerification Status: STATIC CHECKS PASSED — {policy.message}")
+    elif policy.status_label == "UNVERIFIED":
+        print(f"\nVerification Status: UNVERIFIED — {policy.message}")
     else:
-        print("\nVerified Protected Release: YES")
+        print(f"\nVerification Status: REJECTED — {policy.message}")
 
     print(f"Android Installation Ready: {report.installation_readiness_status}")
-
-    if failed_count > 0 and fail_on_failure:
-        return 1
-    return 0
+    return policy.command_exit_code
 
 
 def main(args: list[str] | None = None) -> int:

@@ -17,14 +17,14 @@ progress:
 See: `MEMORY.md` (root operational memory) and `.planning/PROJECT.md` (updated 2026-10-24)
 
 **Core value:** The developer's original source code and signing credentials remain completely untouched and local, while production application binaries undergo verifiable, reproducible multi-layer code protection with honest, auditable security reporting.  
-**Current focus:** Phase A — Critical Product Blocker Remediation Complete (Ready for Local Review & Commit)
+**Current focus:** Phase A.1 — Verification Integrity & Final Corrections Complete (Ready for Local Review)
 
 ## Current Position
 
-Phase: 4 of 7 (Android Protection Pipeline & Verification Engine — Phase A Remediated)  
-Plan: Phase A Critical Product Blocker Remediation Complete (Tasks 1–9)  
-Status: Phase A complete and locally verified: generalized `AndroidPipelineAdapter` and `VerificationEngine` across arbitrary Android Gradle packages/modules (Groovy & Kotlin DSL), enforced `VerificationConfig` (`enabled`, canonical `checks`, `fail_on_check_failure`, anti-bypass gate), added pre-build `-dontobfuscate` / APK-task / signing validation, isolated signing subprocess environments via `build_safe_env()`, removed doctor `"Live Builds Validated : 0"` and surfaced offline Gradle AGP/R8 cache status, added clean structured CLI error handling without tracebacks, and added `tests/fixtures/unrelated_android_gradle_project/` + `tests/test_phase_a_remediation.py`; 336 tests passing with 94% coverage across all local quality gates  
-Last activity: 2026-11-11 — Completed Phase A Critical Product Blocker Remediation across `config.py`, `signing.py`, `verify.py`, `doctor.py`, `adapters/android.py`, `cli.py`, docs, and tests (`336 passed`, `94%` coverage; live Gradle execution only validated on `sample_android_gradle_project/`).
+Phase: 4 of 7 (Android Protection Pipeline & Verification Engine — Phase A & A.1 Remediated)  
+Plan: Phase A & Phase A.1 Verification Integrity Complete  
+Status: Phase A.1 complete and locally verified (`371 passed`, `93%` coverage): hardened generalized `CHK-SYM-01` mapping consistency and build provenance checks (`mapping_sha256` & `build_started_at`), enforced mandatory-check exit semantics and `Operational Error` separation in `cmd_verify`, ordered pre-export `verify_source_integrity()` before audit/mapping/APK writes while preserving original exceptions alongside integrity violations in `SandboxManager.__exit__`, unified non-bypassable `fail_on_check_failure` policy via `evaluate_verification_policy()`, rejected `assembleAndroidTest`/test tasks, fixed custom-module `.kts` AGP detection in `doctor`, and restored clean fixture git state; live Gradle execution validated only on `sample_android_gradle_project/`  
+Last activity: 2026-11-12 — Completed Phase A.1 Verification Integrity & Final Corrections across `config.py`, `mapping.py`, `sandbox.py`, `verify.py`, `adapters/android.py`, `cli.py`, `doctor.py`, docs, and tests (`371 passed`, `93%` coverage).
 
 Progress: [████████░░] 75%
 
@@ -84,6 +84,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-11-11 22:55 IST  
-Stopped at: Completed Phase A Critical Product Blocker Remediation across code, tests, and documentation (336 tests passing locally with 94% coverage; clean ruff, mypy, bandit, and uv build).  
+Last session: 2026-11-12 22:20 IST  
+Stopped at: Completed Phase A.1 Verification Integrity & Final Corrections across code, tests, and documentation (371 tests passing locally with 93% coverage; clean ruff, mypy, bandit, and uv build).  
 Resume file: None

@@ -533,12 +533,23 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
 
         # 10d. Declared Android Gradle Plugin (AGP) Version
         agp_detected: str | None = None
-        for b_cand in [
+        agp_build_path: Path | None = None
+        agp_candidates = [
             proj / "build.gradle",
             proj / "build.gradle.kts",
             proj / "app" / "build.gradle",
             proj / "app" / "build.gradle.kts",
-        ]:
+        ]
+        for child in sorted(proj.iterdir()):
+            if (
+                child.is_dir()
+                and not child.name.startswith(".")
+                and child.name != "app"
+            ):
+                agp_candidates.append(child / "build.gradle")
+                agp_candidates.append(child / "build.gradle.kts")
+
+        for b_cand in agp_candidates:
             if b_cand.is_file():
                 txt = b_cand.read_text(encoding="utf-8", errors="replace")
                 m_agp = re.search(
@@ -547,6 +558,7 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
                 )
                 if m_agp:
                     agp_detected = m_agp.group(1)
+                    agp_build_path = b_cand
                     break
                 m_agp_alt = re.search(
                     r"id\s*\(?['\"]com\.android\.application['\"]\)?\s+version\s+['\"]([^'\"]+)['\"]",
@@ -554,10 +566,12 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
                 )
                 if m_agp_alt:
                     agp_detected = m_agp_alt.group(1)
+                    agp_build_path = b_cand
                     break
                 m_cp = re.search(r"com\.android\.tools\.build:gradle:([0-9.]+)", txt)
                 if m_cp:
                     agp_detected = m_cp.group(1)
+                    agp_build_path = b_cand
                     break
 
         reports.append(
@@ -572,9 +586,7 @@ def run_doctor_checks(project_dir: Path | None = None) -> list[ToolReport]:
                 remediation_hint="Could not detect 'com.android.application' version in project build scripts."
                 if agp_detected is None
                 else "",
-                path=str(proj / "build.gradle")
-                if (proj / "build.gradle").is_file()
-                else None,
+                path=str(agp_build_path) if agp_build_path else None,
                 validated_live=False,
             )
         )

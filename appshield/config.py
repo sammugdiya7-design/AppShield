@@ -154,6 +154,18 @@ class AndroidConfig:
 
 @dataclass
 class VerificationConfig:
+    """
+    Post-protection verification policy configuration.
+
+    `fail_on_check_failure` governs command exit behavior ONLY for non-mandatory
+    check failures (such as heuristic `string_pool_inspection`) once all applicable
+    mandatory checks pass. Mandatory security checks (`build_execution`,
+    `apk_structure`, `symbol_renaming_ratio`, `package_alignment`, plus
+    `signature_integrity` when signing is enabled) cannot be bypassed by setting
+    `fail_on_check_failure: false`, and an unverified APK is never exported as a
+    protected release.
+    """
+
     enabled: bool = True
     fail_on_check_failure: bool = True
     checks: list[str] = field(
@@ -195,10 +207,16 @@ def validate_android_release_task(
             "Invalid 'android.build_variant': must be a non-empty string (e.g., 'release')."
         )
     variant_lower = build_variant.strip().lower()
-    if variant_lower == "debug" or variant_lower.endswith("debug"):
+    if (
+        variant_lower == "debug"
+        or variant_lower.endswith("debug")
+        or "androidtest" in variant_lower
+        or "unittest" in variant_lower
+        or "testfixtures" in variant_lower
+    ):
         raise ConfigValidationError(
             f"Unsupported Android build_variant '{build_variant}': AppShield only protects "
-            "release builds with R8 minification enabled, not debug variants."
+            "release APK builds with R8 minification enabled, not debug or test variants."
         )
 
     if not isinstance(gradle_task, str) or not gradle_task.strip():
@@ -218,19 +236,32 @@ def validate_android_release_task(
 
     task_leaf = task_trimmed.split(":")[-1]
     leaf_lower = task_leaf.lower()
+    if not leaf_lower:
+        raise ConfigValidationError(
+            f"Invalid 'android.gradle_task' '{gradle_task}': missing Gradle task name after ':'."
+        )
     if "bundle" in leaf_lower or ".aab" in task_trimmed.lower() or "aab" == leaf_lower:
         raise ConfigValidationError(
             f"Unsupported Android Gradle task '{gradle_task}': Android App Bundles (.aab / 'bundle*' tasks) "
             "are not supported yet. Configure an APK assembly task such as 'assembleRelease'."
         )
-    if leaf_lower.endswith("debug"):
+    if (
+        "androidtest" in leaf_lower
+        or "unittest" in leaf_lower
+        or "testfixtures" in leaf_lower
+    ):
+        raise ConfigValidationError(
+            f"Unsupported Android Gradle task '{gradle_task}': Android instrumentation/unit test tasks "
+            "are not release APK protection builds. Configure a release APK task such as 'assembleRelease'."
+        )
+    if leaf_lower.endswith("debug") or "assembledebug" in leaf_lower:
         raise ConfigValidationError(
             f"Unsupported Android Gradle task '{gradle_task}': debug builds are not supported for release "
             "protection. Configure a release APK task such as 'assembleRelease'."
         )
-    if "assemble" not in leaf_lower:
+    if not leaf_lower.startswith("assemble") or leaf_lower == "assemble":
         raise ConfigValidationError(
-            f"Unsupported Android Gradle task '{gradle_task}': AppShield requires an APK assembly task "
+            f"Unsupported Android Gradle task '{gradle_task}': AppShield requires a release APK assembly task "
             "(for example, 'assembleRelease' or ':app:assembleRelease')."
         )
 

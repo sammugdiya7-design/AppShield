@@ -576,7 +576,9 @@ class TestStringPoolScan:
             strings=["label", FIXTURE_TEST_STRINGS[0]],
         )
         mapping_file = tmp_path / "mapping.txt"
-        mapping_file.write_text("com.foo.Bar -> a.a:\n", encoding="utf-8")
+        mapping_file.write_text(
+            "com.foo.Bar -> a.a:\ncom.foo.Baz -> b.b:\n", encoding="utf-8"
+        )
 
         build_res = GradleBuildResult(
             success=True,
@@ -629,7 +631,9 @@ class TestStringPoolScan:
             strings=["label", raw_secret],
         )
         mapping_file = tmp_path / "mapping.txt"
-        mapping_file.write_text("com.foo.Bar -> a.a:\n", encoding="utf-8")
+        mapping_file.write_text(
+            "com.foo.Bar -> a.a:\ncom.foo.Baz -> b.b:\n", encoding="utf-8"
+        )
 
         build_res = GradleBuildResult(
             success=True,

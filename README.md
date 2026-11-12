@@ -130,11 +130,12 @@ appshield verify dist/protected/sample_android_gradle_project-release-protected.
   -o dist/protected/audit_report.json
 ```
 
-#### Key `verify` Flags:
+#### Key `verify` Flags & Exit Semantics:
 - `-c, --config <path>`: Optional path to project configuration file.
 - `-m, --mapping-file <path>`: Optional path to R8 obfuscation mapping file for symbol renaming verification.
 - `-o, --output <path>`: Optional path to export JSON verification report.
 - `--overwrite`: Authorize overwriting existing output report file.
+- **Exit Behavior**: Unreadable/missing artifacts or mapping files raise `Operational Error` (exit `1`). Reports with failed or `SKIPPED` mandatory checks (`CHK-APK-01`, `CHK-SYM-01`, `CHK-ALN-01`, plus `CHK-SIG-01` when signing is enabled, or `verification.enabled: false`) exit `1` as `REJECTED`. Standalone `verify` with passing mandatory static checks (where `CHK-BLD-01` has no live build session and optional/unsigned checks are skipped) exits `0` as `STATIC CHECKS PASSED` while keeping `is_verified_protected: False`.
 
 ---
 
@@ -188,10 +189,10 @@ verification:
 ```
 
 #### Configuration Safety & Verification Notes
-- **APK Task & Variant Guard**: `gradle_task` must target a release APK task (e.g., `assembleRelease`); `bundle*`/`.aab` and `debug` tasks are rejected during configuration validation.
+- **APK Task & Variant Guard**: `gradle_task` must target a release APK task (`assemble*Release*`); `bundle*`/`.aab`, `debug`, `androidTest`/`unitTest`, bare `assemble`, and test variant tasks are rejected during configuration validation.
 - **No-Obfuscation Safeguard**: ProGuard/R8 rule files containing active `-dontobfuscate` directives are rejected early during validation and rule staging.
 - **Pre-Build Signing Guard**: When `signing.enabled: true`, `keystore_path` (existing file), `key_alias`, password env vars (`keystore_password_env`), and `--allow-production-signing` (when `is_production: true`) are validated before Gradle execution starts.
-- **Verification Enforcement**: `verification.enabled`, `fail_on_check_failure`, and canonical `checks` are enforced consistently by `protect` and `verify`; unknown check names are rejected, and disabling verification or omitting mandatory core checks (`build_execution`, `apk_structure`, `symbol_renaming_ratio`, `package_alignment`, plus `signature_integrity` when signing is enabled) prevents `is_verified_protected = True`.
+- **Verification Enforcement & `fail_on_check_failure` Contract**: `verification.enabled` and canonical `checks` are enforced consistently by `protect` and `verify`. Mandatory core checks (`build_execution`, `apk_structure`, `symbol_renaming_ratio`, `package_alignment`, plus `signature_integrity` when signing is enabled) can NEVER be bypassed: `fail_on_check_failure: false` permits exit `0` (`UNVERIFIED`) ONLY for non-mandatory check failures once all mandatory checks pass, and unverified APKs are NEVER exported as protected.
 
 ---
 

@@ -1,340 +1,181 @@
 # MEMORY.md — AppShield Living Project Memory
 
-*Permanent project memory and operational rules. Must be read before starting every task.*
+*Permanent project memory, operational governance, and development instructions for AppShield development sessions. Must be read before starting every task.*
 
 ---
 
-## 1. Project Vision, Goals & Non-Goals
+## 1. Project Identity
 
-### Vision
-A simple, local, cross-platform application code-protection CLI for developers targeting Android, iOS, and eventually Windows, designed to raise reverse-engineering work factors without vendor lock-in, recurring SaaS fees, or cloud privacy risks.
-
-### Goals
-- **100% Local Execution**: Zero remote network transmission of source code, binaries, or signing credentials.
-- **Source Preservation**: Absolute immutability of developer source trees and original binaries.
-- **Tool Orchestration**: Wrap existing, compatible, battle-tested tools instead of inventing unstable custom obfuscation compilers.
-- **Isolated Staging**: Build and transform exclusively in temporary, sandboxed scratch directories with separate output destinations.
-- **Empirical Verification**: Automate post-protection decompiler audits (e.g. headless JADX, symbol scrapers) to measure actual protection.
-- **Honest Reporting**: Quantify resilience and explicitly disclaim impossible claims like "100% unbreakable".
-
-### Non-Goals
-- Inventing a custom DEX, Mach-O, or PE compiler backend.
-- Cloud-based telemetry, analytics, or remote signing servers.
-- Marketing "unbreakable DRM" or claiming reverse engineering is impossible.
-- In-memory anti-hooking/root evasion without developer app-level SDK integration.
+- **Product**: AppShield
+- **Category**: Multi-Layer Android Application Protection Platform.
+- **Product Vision**: A multi-layer Android application protection platform designed to make reverse engineering, intellectual-property theft, code extraction, tampering, repackaging, runtime manipulation, and unauthorized use substantially more difficult through real, independently verifiable protection mechanisms. It does not promise 100% security.
 
 ---
 
-## 2. Architecture & Key Technical Decisions
+## 2. Long-Term Product Vision & Security Honesty
 
-| Area | Decision | Rationale |
-|:---|:---|:---|
-| **Core Architecture** | CLI Orchestrator with pluggable platform adapters | High stability; avoids semantic bytecode compiler bugs. |
-| **Language & Runtime** | Python 3.10+ | Standard cross-platform library (`subprocess`, `tempfile`, `pathlib`), zero binary compile step. |
-| **Workspace Staging** | Ephemeral `.appshield_staging/<build_id>` sandbox | Prevents contamination of developer repositories; ensures input immutability. |
-| **Verification Loop** | Headless automated decompiler audit (JADX, symbol scan) | Replaces "security theater" with empirical verification. |
-| **Licensing Boundary** | MIT/Apache core; GPL tools run strictly as external CLI subprocesses | Prevents viral GPL contamination of the AppShield codebase. |
-| **Platform Strategy** | Phased rollout: Android (v1) -> iOS (v2) -> Windows (v2) | Focuses engineering effort on the highest-demand, most accessible mobile platform first. |
-| **Objective Verification** | Empirical checks only; no composite "resistance score" | Opaque numerical scores provide a false sense of security; objective counts and percentages provide auditable truth. |
-| **Android MVP Engine** | Official Google R8 via AGP 8.2.2 + `zipalign` + `apksigner` | Reliable, modern industry standard; avoids custom bytecode decompiler bugs. |
-| **Toolchain Target Standard** | JDK 17 + Gradle 8.2 + AGP 8.2.2 + SDK 34 + Build-Tools 34.0.0 | Selected target version matrix based on AGP compatibility docs; not claimed tested end-to-end until live build succeeds. |
-| **Credential Masking** | Passwords referenced exclusively via env var names | Eliminates plaintext credentials from CLI flags, process lists, and disk files. |
-| **Disposable Test Fixtures** | Isolated sample Android Gradle project (`sample_android_gradle_project`) for test suites | Satisfies safety rule: destructive/mutating operations run exclusively on disposable fixtures. |
-| **Simulation Barrier** | Simulation strictly isolated in test suite; production CLI stops if toolchain missing | Never emit fake or simulated APKs to `dist/protected/`; protection claims require real builds. |
-| **Mapping Protection** | R8 `mapping.txt` kept out of public output, logs, and git; secure retention optional | Prevents deobfuscation leakage while allowing crash-trace retention at separate path. |
-| **Signing Sequence** | Build -> zipalign unsigned -> apksigner -> apksigner verify -> zipalign -c | Never modify APK after signing. Test-signed only for fixture; production signing opt-in. |
-| **DEX Format Scope** | Standard DEX 035–040 supported; DEX 041 explicitly unsupported | MVP targets AGP 8.2 / Android API 34; Container DEX 041 uses an altered container header layout. |
-| **Symbol Verification Separation** | Direct descriptor renaming match is `VERIFIED`; broader resilience claim is `HEURISTIC` | Direct mapping & DEX match proves identified symbols were renamed; does not prove application is unbreakable. |
-| **Repackaging Support** | Derived dynamically from mapping data (supports default and custom package repackaging) | Avoids hardcoded package assumptions; verifies mapped descriptors in actual compiled APK. |
-| **Structural Compatibility Claim** | Strictly labeled "Informational Structural Inspection" | Confirms Dalvik header/table structure; does not prove runtime execution without device testing. |
+AppShield evolves beyond a conventional Android obfuscation wrapper into a comprehensive, developer-centric, multi-layer application protection platform.
 
----
+The platform is designed to make:
+- **Reverse engineering significantly more difficult** by removing mnemonic class/field/method names, obscuring control flow, and eliminating obvious symbolic context.
+- **Unauthorized code extraction more difficult** through multi-tier compilation, asset encryption, and native code boundaries.
+- **Application modification and repackaging detectable** through cryptographic self-validation, manifest verification, and signature binding.
+- **Intellectual property theft more difficult** by raising attacker reverse-engineering work factors far beyond standard decompilers (JADX, Ghidra, apktool).
+- **Runtime manipulation detectable where technically possible** via anti-debugging, anti-hooking/instrumentation (Frida/Xposed), and environment health signals.
+- **Licensing and premium-feature bypasses harder** by binding client entitlements to server-validated integrity proofs when backend connectivity is configured.
+- **Unauthorized redistribution less useful** through platform binding and dynamic payload delivery.
 
-## 3. Current Phase & Progress
+### The Security Honesty Principle:
+**Never promise 100% security.** On client-controlled hardware where an adversary has physical and administrative access to the runtime environment, absolute client-side protection is mathematically impossible. The engineering objective is the strongest practical protection with measurable, independently verified work-factor escalation.
 
-- **Current Phase**: Phase 4: Android Protection Pipeline & Verification Engine (Phase A Product Blocker Remediated)
-- **Current Plan**: Plan 04-04 Complete + Phase A Remediation Complete
-- **Status**: Phase 4 completed and empirically verified end-to-end on `sample_android_gradle_project/` (1 live build validated, 1 test-signed release verified, 1 live runtime execution verified on Android emulator-5554 API 37). Phase A Critical Product Blocker Remediation completed to generalize AppShield for arbitrary Android Gradle projects (Groovy/Kotlin DSL, arbitrary module names & package names), pre-build `-dontobfuscate` / APK-task / signing validation, `VerificationConfig` anti-bypass enforcement, `doctor` offline cache inspection, isolated signing subprocess environments, and clean CLI error handling (`336` automated tests passing locally with `94%` coverage; ruff/mypy/bandit/uv build clean). Live Gradle compilation on external/unrelated real apps remains unexecuted during Phase A (verified via mocked build outputs on `tests/fixtures/unrelated_android_gradle_project/`).
-- **Overall Progress**: 75% (Phases 1, 2, 3, & 4 complete; 9 of 12 total plans completed)
+### Defense Classification Taxonomy:
+To maintain technical accuracy, every protection mechanism is classified into one of five categories:
+1. **Prevention**: Hard controls that stop an action when platform integrity holds (e.g., cryptographic signing requirements, source immutability).
+2. **Detection**: Identifying unauthorized modifications or execution environments (e.g., anti-debug checks, hook detection, signature mismatch).
+3. **Deterrence**: Substantially escalating attacker effort, time, and reverse-engineering complexity (e.g., symbol obfuscation, control-flow disruption).
+4. **Mitigation**: Minimizing exposure or blast radius if code or data is inspected (e.g., string pool encryption, asset vaulting).
+5. **Verification**: Empirical cross-examination proving that protections exist in the compiled binary (e.g., DEX bytecode analysis, ZIP alignment audit).
 
 ---
 
-## 4. Completed Features & Pending Tasks
+## 3. Core Protection Philosophy
 
-### Completed
-- [x] Initialized GSD planning infrastructure (`PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, `config.json`).
-- [x] Completed Phase 1 Research dossier (`.planning/research/PHASE1_RESEARCH.md`).
-- [x] Established root-level `MEMORY.md` and permanent project governance rules.
-- [x] Completed Phase 2 Specifications dossier (`.planning/specs/PHASE2_SPECIFICATIONS.md`) covering CLI schema, interfaces, report schema, R8 MVP, and test fixtures.
-- [x] Completed Plan 03-01: Python CLI Foundation (Approved by user):
-  - `pyproject.toml` configuration with editable package support and development dependencies.
-  - `README.md` created documenting project invariants, CLI usage, and test commands.
-  - `appshield/cli.py`: Implemented CLI entry point and subcommands (`info`, `doctor`, `protect`, `verify`).
-  - `appshield/config.py`: Implemented YAML/JSON configuration loader, schema validation, APK rejection, password masking, default exclusions, and `validate_output_destination` overwrite guard.
-  - `appshield/doctor.py`: Local environment prerequisite detection (Java, Javac, `JAVA_HOME`, `ANDROID_HOME`, Gradle/gradlew, `zipalign`, `apksigner`).
-  - Automated tests: 52 unit tests in `tests/test_cli.py`, `tests/test_config.py`, and `tests/test_doctor.py` passing with 99% test coverage.
-  - Linter (`ruff`), type checker (`mypy`), and security scanner (`bandit`) clean with zero issues.
-- [x] Completed Plan 03-02: Workspace Sandbox Manager and Workspace Isolation:
-  - `appshield/sandbox.py`: Implemented `SandboxManager` (and `SandboxContext` alias), `SourceManifest`, `safe_remove_tree`, `is_path_excluded`, and `check_symlink_safety`.
-  - Source tree immutability: Computes SHA-256 manifest before and after staging; detects additions, deletions, and modifications.
-  - Sensitive files in immutability manifest: `*.jks`, `local.properties`, `*.env*`, and `google-services.json` are excluded from staging copies but strictly tracked in the source immutability manifest.
-  - Workspace staging: Staged in isolated ephemeral build directories under system temp by default; original source tree treated strictly as read-only.
-  - Sensitive file exclusions: Excludes `.git/**`, `build/**`, `.gradle/**`, `*.jks`, `*.keystore`, `local.properties`, `*.env*`, `google-services.json`, and `.appshield_staging/**` from staging copies.
-  - Failure recovery: Staging failures and errors trigger automatic, safe cleanup of the temporary sandbox without touching external files.
-  - Security defenses: Path traversal guards on staging and artifact export; symlink escaping checks; Windows read-only attribute handling.
-  - Output safeguards: `export_artifact` enforces destination existence checks and overwrite protection.
-  - Automated tests: 31 unit tests in `tests/test_sandbox.py` passing with 95% coverage.
-  - Static analysis: `ruff`, `mypy`, and `bandit` passing with 0 warnings.
-- [x] Completed Plan 03-03: Disposable Android Gradle Test Fixture and Integration Harness:
-  - Created controlled disposable Android Gradle project fixture in `tests/fixtures/sample_android_gradle_project/` with standard structure (`gradlew`, `gradlew.bat`, `gradle-wrapper.properties`, `settings.gradle`, `build.gradle`, `app/build.gradle`, `app/proguard-rules.pro`, `AndroidManifest.xml`, `strings.xml`, `MainActivity.java`, `IdentifiableSecretService.java`, `PaymentSecurityValidator.java`, `appshield.yaml`, `README.md`).
-  - Included identifiable test symbols (`IdentifiableSecretService`, `PaymentSecurityValidator`, `processUserTokenAndCalculateHash`, `calculateInternalSecurityChecksum`, `validateTransactionToken`) and non-sensitive strings (`APP_SHIELD_TEST_STRING_LITERAL_XYZ`, `DISPOSABLE_TEST_PAYMENT_SECRET_TOKEN`, `NON_SENSITIVE_VALIDATION_SCHEME_V1`) for future R8 verification.
-  - Zero real secrets, private keys, or personal credentials contained in fixture.
-  - Implemented `is_android_gradle_project` in `appshield/doctor.py` and exported in `appshield/__init__.py`. Integrated into `run_doctor_checks` when `--project-dir` is provided.
-  - Added 10 automated integration tests in `tests/test_integration_fixture.py` (total 93 tests across suite) passing with 95% code coverage.
-  - Tests verify structure, supported project detection, source preservation, sensitive file exclusion, path/symlink safety, prerequisite diagnostic messages, and safely distinguish live vs. simulated builds under offline/safe testing boundaries.
-- [x] Completed Plan 04-01: Android Gradle Pipeline Adapter, Toolchain Discovery, and R8 Rule Staging:
-  - `appshield/adapters/base.py`: Defined abstract `PlatformAdapter` contract, structured dataclasses (`PrerequisiteCheck`, `ProjectInspection`, `ProtectionResult`), and custom exception hierarchy (`AdapterError`, `UnsupportedProjectError`, `ConfigurationInspectionError`, `RuleStagingError`).
-  - `appshield/adapters/android.py`: Implemented `AndroidPipelineAdapter`, supported project detection, standalone precompiled APK rejection, multi-module layout inspection, release minification checking (`minifyEnabled true`), rules file validation, safe R8 rule staging into isolated staging sandbox, and defense against accidental test symbol keep-rules.
-  - `appshield/adapters/__init__.py`: Exported public adapter API.
-  - Extended `appshield/doctor.py` and `appshield/cli.py`: Integrated JDK 17, `JAVA_HOME`, Android SDK, `ANDROID_HOME`, Platform 34, Build-Tools 34.0.0 (`zipalign`, `apksigner`), Wrapper scripts/distribution URL (Gradle 8.2), missing `gradle-wrapper.jar` detection, AGP version extraction, and R8 release configuration verification. Formatted doctor output to distinguish detected versions, selected target versions, and live build validation status (0 live builds validated).
-  - Automated tests: Added 28 unit tests in `tests/test_android_adapter.py` and 9 tests in `tests/test_doctor.py` (total 124 tests in test suite) passing with 94% overall code coverage.
-  - Zero live builds executed; zero remote downloads or network requests triggered; original source preserved and unchanged.
+AppShield operates under ten permanent principles:
 
-- [x] Completed Plan 04-02: Safe Gradle Build Execution, APK Output Extraction, and Test Signing:
-  - `appshield/gradle.py`: Implemented controlled Gradle build runner (`GradleRunner`), safe subprocess execution without `shell=True`, safe environment policy preserving system variables while stripping credentials, diagnostic capture with automated secret redaction, process tree termination on timeout (`taskkill` on Windows, `killpg` on POSIX), Gradle task name validation, discovery and verification of release APK (`locate_build_apk`) and R8 mapping file (`locate_r8_mapping`), and APK archive validation (`validate_apk_file`).
-  - `appshield/signing.py`: Implemented verified 5-step signing pipeline (locate unsigned APK -> zipalign -> apksigner sign with masked env vars -> verify signature -> check alignment on signed APK without modifying it). Added non-production signing guards, disposable test keystore generation (`generate_disposable_test_keystore`), credential redaction, and distinct labeling (`unsigned`, `test_signed`, `production_signed`).
-  - Integrated into `AndroidPipelineAdapter.stage_and_protect()`: Prerequisite verification preventing simulated execution on missing host toolchains; staging in ephemeral sandbox; R8 rules injection; Gradle build; release APK discovery; alignment/signing; destination overwrite safeguards; and source immutability verification.
-  - Automated tests: Added 45 unit tests in `tests/test_gradle.py`, 33 unit tests in `tests/test_signing.py`, and updated `tests/test_android_adapter.py` (total 205 tests across suite) passing with 93% code coverage.
-  - Static analysis: `ruff check` (0 errors), `ruff format` (clean), `mypy` (0 errors in 18 source files), `bandit` (0 issues).
-  - Safety & Boundary Confirmation: Host toolchain prerequisites remained unavailable (Java 8 vs 17, missing SDK 34, missing wrapper JAR); runner and adapter verified to fail clearly and safely without executing unapproved builds, downloading binaries, or emitting fake APKs.
-
-- [x] Completed Plan 04-03: Empirical Verification Engine, String Pool Scanner & Mapping Auditor:
-  - `appshield/dex.py`: Implemented robust, defensive DEX bytecode inspector for DEX format (versions 035-040). Safely parses DEX headers, endianness, string identifier tables, type identifiers, and class definition tables with strict bounds checking. Implemented `inspect_apk_dex()` for multidex APKs (`classes.dex`, `classes2.dex`, etc.) and `create_synthetic_dex()` for generating binary-compliant synthetic DEX test fixtures without requiring an Android SDK. Treated all DEX structures as untrusted data without executing APK bytecode.
-  - `appshield/mapping.py`: Implemented R8 ProGuard `mapping.txt` parser. Extracts class, method, and field obfuscation remappings, computes aggregate renaming ratios, and extracts R8 compiler metadata (`compiler`, `compiler_version`). Keeps raw mappings out of reports to avoid leaking obfuscation internals.
-  - `appshield/verify.py`: Implemented `VerificationEngine` with 7 objective, evidence-based verification checks:
-    - `CHK-BLD-01`: Build execution status (`VERIFIED` on real build, `INFORMATIONAL` on synthetic/test artifacts, `FAILED` on failure).
-    - `CHK-APK-01`: APK structure and DEX validity (`VERIFIED` or `FAILED`).
-    - `CHK-SYM-01`: Dual-evidence symbol verification (`HEURISTIC`). Verifies that original developer symbols are absent from DEX class descriptors, mapped obfuscated descriptors exist in DEX bytecode, and entry point classes are preserved. Correctly identifies stripped dead code as missing rather than misclassifying it as obfuscated.
-    - `CHK-SIG-01`: Cryptographic signature verification via `apksigner verify` (`VERIFIED`, `FAILED`, or `UNSUPPORTED`).
-    - `CHK-ALN-01`: 4-byte ZIP alignment verification via `zipalign -c` (`VERIFIED`, `FAILED`, or `UNSUPPORTED`).
-    - `CHK-STR-01`: Heuristic string pool scanner (`HEURISTIC`). Scans DEX string tables for sensitive patterns (API keys, tokens, credentials, fixture tokens) with mandatory redaction (`[REDACTED_SECRET_PATTERN]`, `[REDACTED_FIXTURE_TOKEN]`) in output reports.
-    - `CHK-CMP-01`: Bytecode structural compatibility evidence (`INFORMATIONAL`).
-  - Strict reporting guarantees: Defined `VerificationReport` with export to JSON (`audit_report.json`), formatted terminal output, and GitHub-flavored Markdown. Explicitly banned composite numerical "resistance scores"; every check reports precise evidence levels, findings, and disclaimers.
-  - Environment variable isolation (Requirement 7): Verified signing passwords (`APPSHIELD_KS_PASS`, etc.) never leak into subprocess environments.
-  - Automated tests: Added 25 unit tests in `tests/test_dex.py` and 25 unit tests in `tests/test_verify_engine.py` (total 255 tests across suite) passing with 94% code coverage (`dex.py`: 96%, `mapping.py`: 98%, `verify.py`: 91%).
-  - Static analysis: `ruff check` (0 errors), `ruff format` (clean), `mypy` (0 errors in 23 source files), `bandit` (0 issues).
-- [x] Completed Plan 04-04: End-to-End CLI Integration, Automated Test Matrix, and Security Validation:
-  - `appshield/cli.py`: Wired `appshield protect` and `appshield verify` commands directly into `AndroidPipelineAdapter.stage_and_protect()` and `VerificationEngine.run_all_checks()`. Added CLI options `--allow-production-signing`, `--mapping-out`, `-m / --mapping-file`, and `-o / --output`.
-  - Full protection lifecycle coordination: Integrates preflight validation, prerequisite checking, ephemeral staging in sandbox, R8 rule injection, Gradle build execution, APK and mapping file extraction, unsigned alignment, APK signing (test vs production authorization), empirical verification of all 7 checks, JSON (`audit_report.json`) and Markdown (`audit_report.md`) audit generation, source tree immutability verification, and release acceptance export.
-  - Strict simulation barrier: Rejects simulated/mocked runners in production workflows; even under test execution with `allow_simulated=True`, artifacts from simulated runs are NEVER exported into `dist/protected/`.
-  - Release acceptance gate: Enforces that `is_verified_protected` requires a real toolchain build (`CHK-BLD-01` PASS), valid APK archive and parseable DEX (`CHK-APK-01` PASS), verified renaming of target classes in mapping and compiled DEX (`CHK-SYM-01` PASS), zero check failures across all checks, and identical source tree SHA-256 hashes.
-  - Mapping security & privacy: `mapping.txt` is retained privately only when `--mapping-out` is provided; never placed in public output directories, never committed, and raw mappings never displayed in public audit reports.
-  - Test suite expansion: Added comprehensive end-to-end integration test suite in `tests/test_android_pipeline.py` (11 tests) and expanded CLI tests in `tests/test_cli.py` (total 276 tests across suite) passing with 93% code coverage.
-  - Static analysis: `ruff check` (0 errors), `ruff format` (clean), `mypy` (0 errors in 24 source files), `bandit` (0 issues).
-  - Honest Toolchain Reporting: Acknowledges that local host lacks complete toolchain (JDK 17, Android SDK 34, wrapper JAR); live builds remain unvalidated (0 live builds validated) pending a workstation with full toolchain installed.
-- [x] Completed Toolchain & Verification Defect Resolution (Audit & Hardening):
-  - Runbook & Path Alignment: Corrected `scripts/setup/RUNBOOK.md` to reference `tests/fixtures/sample_android_gradle_project/appshield.yaml` (eliminating nonexistent `appshield.json`), explicit `--output-dir dist/protected`, and passing `-c` during standalone verification. Added path-agreement tests verifying configuration existence and output matching.
-  - String Pool Scan Classification (`CHK-STR-01`): Modified `appshield/verify.py` to differentiate genuine sensitive credential patterns (which produce `status="FAIL"` and block release acceptance) from known fixture test tokens (`FIXTURE_TEST_STRINGS`, which produce informational findings `status="INFO"` and allow release acceptance `is_verified_protected=True`). All matched patterns remain redacted in audit reports.
-  - Gradle Toolchain Discovery & Version Validation: Updated `appshield/doctor.py` and `appshield/gradle.py` to eliminate false positives: Gradle is reported as available only when a complete wrapper (`gradlew` script AND `gradle/wrapper/gradle-wrapper.jar`) or valid system Gradle binary exists, with version >= 8.2 enforced across both.
-  - Safe Dependency Warm-Up & Network Build Policy: Documented exact behavior of `--allow-network-dependencies`: it executes a full Android protection build (resolves dependencies, runs `assembleRelease`, executes R8, and exports protected APK) strictly inside ephemeral staging without modifying source files. Clarified that Gradle `--offline` mode is a build-tool switch, NOT operating-system-level network isolation. Required explicit developer authorization for any online build while maintaining strict offline defaults.
-  - Artifact Status & Installation Readiness Distinction: Enhanced CLI output and verification reports (`VerificationReport.is_installation_ready` and `installation_readiness_status`) to strictly separate code-protection verification (`is_verified_protected`), structural validity and alignment (`CHK-APK-01`, `CHK-ALN-01`), signature verification (`CHK-SIG-01`), and Android installation readiness. Unsigned APKs may pass code-protection verification, but are strictly reported as not installation-ready because Android OS Package Manager rejects unsigned packages. Disposable test signing remains strictly separated from production signing, and production signing credentials are never generated or exposed.
-  - Release Acceptance Gates Audit: Formally verified all 9 gating rules: genuine secrets block export (`CHK-STR-01: FAIL`), fixture markers remain informational, missing/invalid APKs fail, DEX symbol obfuscation is empirically verified in bytecode, 4-byte ZIP alignment passes, signature verification is mandatory when signing is enabled, skipped signing is permitted only when signing is explicitly disabled, simulated builds are blocked from export, and source immutability is cryptographically enforced before export.
-  - PowerShell Script Safety: Hardened `download-toolchain.ps1`, `configure-user-environment.ps1`, and `restore-user-environment.ps1` by replacing misleading `SupportsShouldProcess = $true` with `[CmdletBinding()]` and documenting `-Preview` as the dry-run mechanism. Implemented transactional staging replacement with automatic rollback on error in `download-toolchain.ps1`, enforced `-Force` before replacing incomplete directories, guaranteed collision-free backup naming in `configure-user-environment.ps1`, and reconfirmed Machine PATH is strictly read-only.
-  - Test Suite Expansion: Added comprehensive regression tests in `tests/test_integration_fixture.py`, `tests/test_doctor.py`, `tests/test_gradle.py`, `tests/test_verify_engine.py`, and `tests/test_cli.py` (total 301 tests across suite) passing with 93% code coverage and 0 lint/type/security issues.
-- [x] Completed Toolchain Stage A Provisioning (User-Authorized):
-  - Downloaded, verified official SHA-256 (`98518ecf554465057ee5509462631deeee374bc368c12a411d225cd29381f84b`), and transactionally installed Eclipse Temurin OpenJDK 17 LTS (17.0.21+9) at `%USERPROFILE%\.jdk\jdk-17.0.21+9`.
-  - Downloaded, verified official SHA-256 (`38f66cd6eef217b4c35855bb11ea4e9fbc53594ccccb5fb82dfd317ef8c2c5a3`), and transactionally installed Gradle 8.2 at `%USERPROFILE%\.gradle\gradle-8.2`.
-  - Confirmed Android command-line tools already installed and preserved at `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest`.
-  - Created process-level launcher `scripts/setup/enter-appshield-env.ps1` providing complete session isolation; guaranteed zero mutation of Machine or User Windows registry environment variables.
-  - Verified `java -version` (Temurin 17.0.21+9), `javac -version` (17.0.21), and `gradle --version` (8.2) in isolated session while preserving host Oracle Java 8 on Machine PATH.
-  - Preserved Android SDK Platform 34 / Build-Tools 34.0.0 uninstalled and SDK licenses unaccepted, awaiting Stage B/C authorization. Fixture remained 100% untouched (0 bytes diff).
-- [x] Completed Toolchain Stage B Provisioning (User-Authorized):
-  - Confirmed existing `android-sdk-license` (`24333f8a63b6825ea9c5514f83c2829b004d1fee`) covered both `platforms;android-34` and `build-tools;34.0.0` without requiring any additional licenses.
-  - Recorded pre-installation cryptographic SHA-256 manifests across 22,887 files in existing `platforms\android-36`, `platforms\android-36.1`, and `build-tools\36.0.0`.
-  - Installed `platforms;android-34` (revision 3) and `build-tools;34.0.0` via `sdkmanager.bat` in isolated process session.
-  - Verified `platforms\android-34\android.jar`, `build-tools\34.0.0\zipalign.exe`, and `build-tools\34.0.0\apksigner.bat`.
-  - Compared post-installation manifests: confirmed all 22,887 existing files across `android-36`, `android-36.1`, and `build-tools\36.0.0` remain 100% bit-for-bit identical.
-  - Executed `appshield doctor`: reported `All required prerequisites are met.` (Java 17, javac 17, JAVA_HOME, ANDROID_HOME, SDK 34, Build-Tools 34.0.0, zipalign, apksigner, AGP 8.2.2).
-  - Maintained strict stop conditions: 0 Gradle builds executed, 0 APKs exported, 0 registry mutations, fixture 100% immutable.
-- [x] Completed First Genuine Android Protection Build & Empirical Verification (User-Authorized):
-  - Executed single authorized release protection run against `tests/fixtures/sample_android_gradle_project` with `--allow-network-dependencies`.
-  - Gradle `assembleRelease` completed successfully in 186.06s (exit code 0) using installed Gradle 8.2 and Temurin JDK 17.
-  - Successfully resolved and cached AGP 8.2.2 and build dependencies into `%USERPROFILE%\.gradle\caches\modules-2\files-2.1\com.android.tools.build\gradle\8.2.2`.
-  - Executed official Google R8 (version 8.2.47) bytecode shrinking and obfuscation.
-  - Emitted protected artifact: `dist/protected-first-validation/sample_android_gradle_project-release-protected.apk` (SHA-256: `b4b7ed6f884b8d481de2a5a1ad0fc6af3a355ed8fb580ce1beac3a694bf77e76`, size: 3,147 bytes).
-  - Retained R8 obfuscation mapping privately to `%USERPROFILE%\.appshield\mappings\sample_android_gradle_project\mapping.txt` (SHA-256: `ca9f3c0e8300789e87e6613987ad85bc2b51cdb897f0f0831f45955a2101ad95`).
-  - Empirical verification results:
-    * `CHK-BLD-01`: PASS (Real build completion, exit code 0)
-    * `CHK-APK-01`: PASS (Valid Android package archive, 1 DEX file)
-    * `CHK-SYM-01`: PASS (Dual-evidence verified: `IdentifiableSecretService -> a`, `PaymentSecurityValidator -> b`, `MainActivity` preserved)
-    * `CHK-SIG-01`: SKIPPED (Signing disabled by default; unsigned)
-    * `CHK-ALN-01`: PASS (4-byte zip alignment verified)
-    * `CHK-STR-01`: INFO (3 benign fixture test markers detected, 0 genuine secrets)
-    * `CHK-CMP-01`: INFO (Dalvik 037 structure verified)
-  - Release acceptance: `is_verified_protected: True`, `is_installation_ready: False` (unsigned).
-  - Source preservation: Cryptographic pre/post manifest verified 100% bit-for-bit identical (`git diff` is 0 bytes).
-- [x] Completed Disposable Test Signing & Verification (User-Authorized):
-  - Created 2048-bit RSA disposable test keystore at `%USERPROFILE%\.appshield\keystores\disposable_test.jks` with alias `appshield_test` and certificate `CN=AppShield Disposable Test, OU=Testing, O=AppShield, C=US`.
-  - Used fresh high-entropy ephemeral test password in process memory passed via `keytool -storepass:env` and `apksigner --ks-pass env:`. Cleared from environment immediately after signing.
-  - Signed isolated copy of protected release APK into `dist/test-signed/sample_android_gradle_project-release-test-signed.apk` (size: 12,794 bytes, SHA-256: `c374b2630e6882aac0aec5078e054bd4b909d596cd38cb3649b04566bb3198c0`).
-  - Verified original unsigned APK remained 100% bit-for-bit identical (SHA-256 unchanged: `b4b7ed6f884b8d481de2a5a1ad0fc6af3a355ed8fb580ce1beac3a694bf77e76`).
-  - Verified signed APK signature (`apksigner verify --verbose`): `Verifies` (v2: `true`, v3: `true`, signer: `CN=AppShield Disposable Test...`).
-  - Verified 4-byte ZIP alignment on final signed APK (`zipalign -c -v 4` passed with code 0).
-- [x] Completed Android Runtime Installation & Execution Validation (User-Authorized):
-  - Pre-installation checks passed: `emulator-5554` (API 37, x86_64 architecture), test-signed APK SHA-256 (`c374b2630e6882aac0aec5078e054bd4b909d596cd38cb3649b04566bb3198c0`), v2/v3 signatures valid, `com.appshield.sample` not previously installed.
-  - Installed `dist/test-signed/sample_android_gradle_project-release-test-signed.apk` via `adb -s emulator-5554 install` (Streamed Install: `Success`, exit code 0).
-  - Launched `com.appshield.sample.MainActivity` via `adb -s emulator-5554 shell am start -W` (Status: `ok`, LaunchState: `COLD`, TotalTime: 988ms, assigned PID: 7478).
-  - Verified runtime lifecycle: Process confirmed alive in `ps -A` (UID `u0_a235`), `dumpsys window` confirmed `mCurrentFocus=Window{... com.appshield.sample/com.appshield.sample.MainActivity}`.
-  - Verified zero runtime crashes: Logcat scan confirmed 0 `FATAL EXCEPTION`, 0 `AndroidRuntime`, 0 `ClassNotFoundException`, 0 `NoSuchMethodError`, 0 `VerifyError`.
-  - Confirmed empirical functional execution: Logcat captured `I System.out: AppShield Sample Initialized: 56`, proving that obfuscated services (`IdentifiableSecretService` -> `a`, `PaymentSecurityValidator` -> `b`) executed successfully at runtime on Android OS.
-  - Preserved emulator state: Application left installed on `emulator-5554` without uninstallation or data wiping per instructions. Both APK artifacts preserved bit-for-bit.
-- [x] Completed Android v1 Release Readiness Remediation (Audit Date: 2026-11-10):
-  - Created standard MIT `LICENSE` file at repository root with explicit copyright holder placeholder, subsequently resolved to `Copyright (c) 2026 Sam Jain`.
-  - Implemented GitHub Actions CI workflow `.github/workflows/ci.yml` (multi-Python matrix 3.10/3.11/3.12, ruff lint/format, mypy, bandit, pytest coverage, build).
-  - Modernized `README.md` reflecting full Android v1 product reality, prerequisites, CLI usage flags, empirical verification evidence, accurate public clone URL (`https://github.com/sammugdiya7-design/AppShield.git`), and explicit platform matrix (Android v1 implemented; iOS/Windows future roadmap).
-  - Created root `ARCHITECTURE.md` documenting orchestration architecture, staging vs OS sandboxing, signing order, credential safety, and threat boundaries.
-  - Synchronized `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, and `MEMORY.md`.
-  - Modernized `pyproject.toml` license declaration (`license = "MIT"`), resolving packaging deprecation warnings. Verified clean source and wheel builds (`uv build`).
-  - Resolved CI Ruff SIM102 issue in `appshield/gradle.py:221` and pinned `ruff==0.17.4` in `pyproject.toml` and `uv.lock`.
-  - Resolved CI Mypy dependency gap: declared `"types-PyYAML==6.0.12.20260906"` in `[project.optional-dependencies] dev` in `pyproject.toml` and synchronized `uv.lock`. Verified clean CI installation (`pip install -e ".[dev]"`) and isolated Mypy execution (`mypy appshield tests` passes with 0 issues).
-  - Resolved Cross-Platform CI Test Isolation Gaps (Audit Date: 2026-11-11):
-    * Fixed zipalign test isolation: mocked `find_zipalign` in synthetic APK CLI tests (`test_cli_verify_success_with_valid_apk`, `test_cli_verify_with_mapping_and_json_output`, `test_cli_verify_allows_output_overwrite_with_flag`, `test_cli_protect_and_verify_e2e`) to eliminate false-positive alignment failures on runners with pre-installed Android SDK tools. Added 3 dedicated tests verifying aligned PASS, unaligned FAIL, and missing SKIPPED outcomes.
-    * Fixed Gradle prerequisite test isolation: mocked `check_prerequisites` in `test_stage_and_protect_stops_on_missing_prerequisites` and `test_missing_toolchain_prerequisites_halt` to prevent unintended live Gradle executions on runners with pre-installed system Gradle. Added 3 dedicated tests for incompatible Gradle versions, missing Android SDK, and offline AGP cache misses.
-    * Fixed PowerShell runbook test isolation: separated pure AST syntax parsing via `[System.Management.Automation.Language.Parser]::ParseInput` and `ParseFile` from Windows-specific command/path executions (`C:\...`), executing Windows drive assertions strictly on Windows hosts (`sys.platform == "win32"`).
-    * Verified complete test suite: 307 automated tests passing with 93% code coverage; 0 ruff errors; 0 mypy issues; 0 bandit findings; clean wheel and source distributions.
-- [x] Completed Phase A Critical Product Blocker Remediation (2026-11-11):
-  - Generalized Verification & Project Layout (`appshield/adapters/android.py`, `appshield/verify.py`, `appshield/doctor.py`): Removed hardcoded fixture class assumptions (`IdentifiableSecretService`, `PaymentSecurityValidator`, `MainActivity`) from production orchestration; added pure-Python XML-safe `extract_manifest_entry_points()` dynamically resolving components from `AndroidManifest.xml` across arbitrary packages and module names (`is_android_gradle_project()` also accepts non-`app` module directories such as `mobile/`); generalized `CHK-SYM-01` dual-evidence checks to validate renamed classes from R8 `mapping.txt` against DEX bytecode and fail on `-dontobfuscate` (`0` renamed classes) or missing `mapping.txt`.
-  - Pre-Build Safety Validation (`appshield/config.py`, `appshield/adapters/android.py`): Rejected `bundle*`/`.aab` and `debug` Gradle tasks in `validate_android_release_task()`; detected and rejected active `-dontobfuscate` directives via `contains_dontobfuscate_directive()` in `validate_project()` and `stage_rules()`; validated `signing.enabled` keystore existence, `key_alias`, password env vars, and `--allow-production-signing` via `validate_prebuild_signing_config()` before running Gradle.
-  - VerificationConfig Enforcement (`appshield/config.py`, `appshield/verify.py`, `appshield/cli.py`): Enforced canonical 7 check keys (`CANONICAL_VERIFICATION_CHECKS`), rejected unknown check names, honored `enabled` / `checks` / `fail_on_check_failure` in both `protect` and `verify`, emitted explicit `SKIPPED` entries for disabled checks, and enforced mandatory core checks (`CHK-BLD-01`, `CHK-APK-01`, `CHK-SYM-01`, `CHK-ALN-01`, plus `CHK-SIG-01` when signing is enabled) before allowing `is_verified_protected = True`.
-  - Doctor Offline Cache Accuracy & Clean CLI Errors (`appshield/doctor.py`, `appshield/cli.py`): Removed misleading `"Live Builds Validated : 0"` message; added `get_offline_dependency_cache_reports()` to inspect local AGP/R8 Gradle cache read-only (zero network calls) and surface `--allow-network-dependencies` guidance; wrapped `protect`, `verify`, `adapter`, Gradle, signing, DEX, mapping, and config exceptions cleanly with secret redaction and exit code `1` without raw tracebacks.
-  - Signing Subprocess Isolation (`appshield/signing.py`): Updated `generate_disposable_test_keystore()` to pass `keytool` credentials via `-storepass:env` / `-keypass:env` over stripped `build_safe_env()` environments (without plaintext CLI args or parent `os.environ` mutation), and wrapped `zipalign_apk()`, `verify_zipalign()`, `verify_apk_signature()`, and `sign_apk()` with `build_safe_env()`.
-  - Regression Fixture & Test Suite (`tests/fixtures/unrelated_android_gradle_project/`, `tests/test_phase_a_remediation.py`): Added unrelated Kotlin DSL `mobile/` fixture (`LedgerHomeActivity`, `InvoiceCalculator`, `TaxRuleEngine`) and comprehensive remediation tests (verified with mocked build outputs; `tests/fixtures/sample_android_gradle_project/` untouched). Verified 336 passing tests at 94% coverage and all quality gates green.
-
-### Pending Tasks (Phase 5+)
-- [ ] Phase 5: iOS Protection Engine & Mach-O Sanitization (Plans 05-01 through 05-03)
-- [ ] Phase 6: Windows Protection Engine & AV Safety (Plans 06-01 through 06-03)
-- [ ] Phase 7: Portfolio Polish, Documentation & GitHub Release (Plans 07-01 through 07-02)
+1. **Defense in Depth**: Security must not rely on any single technique. Protection combines build-time transformations, asset protection, runtime checks, signature verification, and optional backend validation.
+2. **Real Protection, Never Fake Code**: Do not add meaningless classes, junk methods, or artificial complexity merely to inflate APK size or create synthetic obfuscation theater. Every protection mechanism must address a defined, documented threat.
+3. **Independent Verification of Security Claims**: Every security capability must be subject to automated empirical verification (e.g., verifying that renamed symbols actually exist in DEX bytecode and original symbols are completely absent).
+4. **No Invented Security Scores or Guarantees**: Never generate opaque, subjective "resistance scores" (e.g., "94/100 Protection Score") or arbitrary unmeasured performance percentages. Report empirical metrics: exact check passes, failures, counts, and objective findings.
+5. **No False Claims of Unbreakable Protection**: Disclaim impossible claims clearly in CLI output and documentation. Obfuscation increases reverse-engineering work factors; it does not render a binary immune to reverse engineering.
+6. **Source-Code Immutability**: The developer's original repository, source files, and project assets are strictly read-only and must remain 100% bit-for-bit unchanged before and after protection.
+7. **Secure Handling of Credentials and Cryptographic Material**: Keystore passwords, private keys, and API tokens must never appear in command-line arguments, process tables, logs, temporary files, or source control. Subprocess environments must be stripped of unrelated host secrets.
+8. **Measured Compatibility and Performance**: Protection mechanisms must be evaluated against app startup latency, memory overhead, APK size growth, and Android runtime stability through baseline measurement, not invented numbers.
+9. **Security-Critical Checks Must Not Be Silently Bypassed**: Mandatory core checks (`CHK-BLD-01`, `CHK-APK-01`, `CHK-SYM-01`, `CHK-ALN-01`, and `CHK-SIG-01` when signing is enabled) cannot be skipped or bypassed via lenient flags (`fail_on_check_failure: false`). An unverified APK must never be exported as protected.
+10. **Fail-Safe Protection**: Protection failures, compilation errors, or source-integrity violations must immediately abort execution, purge ephemeral staging workspaces, and refuse to emit partial or unverified binaries.
 
 ---
 
-## 5. Supported Platforms & Protection Methods
+## 4. Intended Protection Architecture
 
-| Platform | Target Binaries / Formats | Primary Protection Methods | Verification Method |
-|:---|:---|:---|:---|
-| **Android** (v1 MVP) | Android Gradle Projects (`gradlew` + AGP) | R8 shrinking & obfuscation rules applied strictly in isolated staging, built via AGP | Identifier renaming ratio (heuristic), string pool scan (heuristic), signature validity (verified), zip alignment (verified), structural decompilation (informational) |
-| **Android (Unsupported in MVP)** | Arbitrary precompiled APKs | *Unsupported* — standalone R8 on arbitrary APKs without full platform/resource classpath causes runtime failures. Treated as unsupported until a validated post-compile engine is added. | N/A |
-| **iOS** (v2) | Xcode Projects / Mach-O | Xcode CLI symbol stripping (`strip -x`, `dsymutil`), Swift-Shield symbol renaming, codesign validation | `otool` / `strings` symbol table audit, `codesign --verify --deep` |
-| **Windows** (v2) | .NET Solutions, Native PE | Obfuscar (.NET symbol/string obfuscation), native symbol stripping, section entropy check | `dumpbin` / `ildasm` inspection, section entropy scan |
+AppShield is designed around six coordinated functional systems:
 
----
+- **System A — Code Protection Engine** *(Deterrence & Mitigation)*: Build-time code hardening, R8/ProGuard orchestration, symbol renaming, keep-rule auditing, and mapping file isolation.
+- **System B — Data Protection Engine** *(Mitigation & Deterrence)*: String constant pool encryption, sensitive credential scanning, asset vaulting, and Android Keystore hardware binding.
+- **System C — Native Protection Engine** *(Deterrence & Mitigation)*: Selective compilation of critical logic into C/C++ shared libraries (`.so`), native symbol stripping, and hardened dynamic JNI registration.
+- **System D — Runtime Defense Engine** *(Detection & Deterrence)*: In-app runtime integrity monitoring, anti-tampering (DEX hash verification), anti-debugging (`ptrace`, `TracerPid`), anti-instrumentation (Frida/Xposed detection), and policy-driven response handling.
+- **System E — Anti-Piracy and Trust Engine** *(Detection, Prevention & Attestation)*: Certificate signature pinning, installer verification, and optional backend attestation (supporting Google Play Integrity and custom backend verification schemas for connected apps).
+- **System F — Security Verification & Attack Laboratory** *(Verification)*: Empirical DEX bytecode auditing, multi-check verification engine, automated decompiler analysis simulation (JADX), and audit report generation.
 
-## 6. Testing Requirements & Known Limitations
-
-### Testing Requirements
-- Unit test suite (`pytest`) with >=85% code coverage for core orchestration.
-- Integration tests run against **disposable sample projects / test fixtures only** (`tests/fixtures/sample_android_gradle_project/`) — never against live production developer code.
-- Verification tests must assert input files remain bit-for-bit identical (SHA-256 unchanged before and after protection).
-
-### Verification Evidence & Precision Invariants
-- **No Composite Score**: Never compute or report an opaque "resistance score" (e.g. 85/100).
-- **Precise Evidentiary Claims**:
-  - `CHK-SYM-01`: Direct evidence that identified class descriptors were renamed based on matching `mapping.txt` and actual DEX descriptors is `VERIFIED`. The broader inference that obfuscation raises reverse-engineering work factors is `HEURISTIC`. Reports must never imply that verifying several renamed symbols proves the whole app is impossible to reverse-engineer.
-  - `CHK-STR-01`: String scanning *detects suspicious patterns* but cannot guarantee that no secrets exist. Classified as `HEURISTIC`. Matched tokens are strictly redacted.
-  - `CHK-SIG-01`: Cryptographic signature verification establishes *validity under signature rules*; it does not prove the application code is secure. Classified as `VERIFIED`.
-  - `CHK-CMP-01`: Labeled as "Informational Structural Inspection" — confirms static Dalvik/ART header and table bounds; explicitly does *not* prove runtime execution correctness without device/emulator testing. Classified as `INFORMATIONAL`.
-  - `CHK-BLD-01`: Real toolchain build verification (`VERIFIED` on real builds, `INFORMATIONAL` on synthetic/test harnesses, `FAILED` on exit errors or inconsistent evidence).
-  - `CHK-APK-01`: Validates package ZIP structure and DEX bytecode streams (`VERIFIED` / `FAILED`).
-- **Dead-Code Removal vs. Obfuscation**: Never count dead-code elimination as successful obfuscation. If a class is missing from DEX class_defs (stripped by R8), `CHK-SYM-01` reports a discrepancy and fails. Identifiable fixture classes are retained via `-keep,allowobfuscation` to ensure reachability from entry points (`MainActivity`) while allowing R8 to obfuscate.
-- **Mapping & Artifact Association**: Verification requires the mapping file to belong to the exact build artifact inspected. Hash tracking (`mapping_sha256`) and build identifier association ensure evidence consistency while keeping raw mappings strictly private.
-- **DEX Format Scope**: Dalvik Executable versions 035–040 are supported (AGP 8.2 / Android API 34). DEX version 041 (Android 15+ Container DEX) is explicitly unsupported in this release and rejected with a clear diagnostic.
-- Every check explicitly reports what it proves, what it does not prove, and its status: `VERIFIED`, `HEURISTIC`, `INFORMATIONAL`, `FAILED`, or `UNSUPPORTED`.
-
-### Safety, Credentials & Workspace Invariants
-- **Sensitive File Exclusion from Staging**: Staging copies strictly exclude `.git/`, `build/`, `.gradle/`, `*.jks`, `*.keystore`, `local.properties`, `*.env*`, and `google-services.json` to prevent leaking credentials into build outputs.
-- **Sensitive File Inclusion in Immutability Checks**: Sensitive files are NEVER excluded from source-immutability checks. They are cryptographically hashed and verified before and after execution.
-- **Documented Immutability Exclusions**: Only `.git/**` (internal VCS state) and `.appshield_staging/**` / `.appshield_cache/**` (tool-managed temporary directories) are deliberately excluded from immutability checks.
-- **No Automatic Production Signing**: Signing is disabled by default; production signing requires explicit confirmation. Unsigned builds are exported as aligned, unsigned APKs with `CHK-SIG-01` reported as `UNSUPPORTED (Signing disabled / unconfigured)`. Initial verification fixture uses a disposable test keystore clearly labeled as test-signed.
-- **Correct Signing & Alignment Order**: 1. Build APK -> 2. Run `zipalign` on unsigned APK -> 3. Sign aligned APK with `apksigner` -> 4. Verify signature with `apksigner verify` -> 5. Confirm alignment with `zipalign -c -v 4` without modifying signed APK. Never modify an APK after signing.
-- **R8 Mapping File Protection**: `mapping.txt` is never copied to the public output directory (`dist/protected/`) by default, never logged, and never committed to Git. Secure retention at a developer-specified location (`--mapping-out`) is supported for crash-trace deobfuscation. A directory named `secure_vault` in the project root is NOT automatically secure; mapping files must be stored in private, designated developer storage outside the repository and public release bundle with restricted OS file permissions. Verification reads the mapping file in staging strictly to compute aggregate statistics without disclosing raw mappings.
-- **Strict Separation Between Simulation & Real Protection**: Production CLI execution requires the actual toolchain. If prerequisites (JDK 17, Android SDK, gradlew, build-tools) are missing, AppShield reports missing items and stops. Simulation/mock harnesses reside strictly within automated tests and never emit fake artifacts to `dist/protected/`.
-- **Supported-Project & Narrowed R8 Scope**: Initial R8 integration targets supported Android Gradle projects where release minification is enabled (`minifyEnabled true`) and ProGuard/R8 rules are referenced. Resource shrinking (`shrinkResources`) remains disabled initially. Modifications match the project's actual Groovy DSL without fragile regex rewriting; unsupported or unconfigured projects fail cleanly with clear diagnostics. Automatic configuration of previously unconfigured projects is a future enhancement.
-- **Gradle Wrapper & Download Safety**: In `tests/fixtures/sample_android_gradle_project/`, `gradlew`, `gradlew.bat`, and `gradle-wrapper.properties` exist, but `gradle/wrapper/gradle-wrapper.jar` is deliberately not committed. Standard Wrapper JARs can download Gradle distributions before Gradle commands start; `--offline` passed to Gradle does not prevent wrapper downloads. For Plan 04-02: verify the required Gradle distribution is cached locally in `~/.gradle/wrapper/dists/` before attempting offline live builds; forbid silent downloads; require authorization or fail with a missing-dependency error; support distribution SHA-256 verification (`distributionSha256Sum`); and treat Wrapper JAR integrity as part of the trusted toolchain.
-- **Android Toolchain Prerequisite & Download Invariants**:
-  - Doctor Prerequisites: Android SDK (`ANDROID_HOME`), SDK Platform 34, Build-Tools 34.0.0, `zipalign`, and `apksigner` are strictly marked `required=True` because a verified protected test-signed release cannot be built without them.
-  - JDK 17: Eclipse Temurin JDK 17 LTS maintained Windows x64 release (`17.0.21+9`), verified against official Adoptium release repository (`OpenJDK17U-jdk_x64_windows_hotspot_17.0.21_9.zip`), installed at user scope (`%USERPROFILE%\.jdk\jdk-17.0.21+9`).
-  - Automated Setup Scripts (`scripts/setup/`):
-    * `download-toolchain.ps1`: Downloads, verifies SHA-256, and extracts JDK 17.0.21+9, Google Android command-line tools 15859902, and Gradle 8.2 to user-scoped locations; supports `-Preview` and `-Force`. Does NOT automatically accept SDK licenses.
-    * `configure-user-environment.ps1`: Backs up environment to protected JSON file before applying changes; idempotently sets user JAVA_HOME, ANDROID_HOME, and User PATH without duplicate entries; supports `-Preview`.
-    * `restore-user-environment.ps1`: Completely restores exact pre-AppShield environment variable values from backup file; supports `-Preview`.
-  - Android SDK: Official Google command-line tools (`commandlinetools-win-15859902_latest.zip`, SHA-256 `90ae805d20434428bffcb699c290860f19bb5f66a67e6b330067e3de801fb04a`), installed to `%LOCALAPPDATA%\Android\Sdk`.
-  - Gradle Execution: Official Gradle 8.2 binary distribution (SHA-256 `38f66cd6eef217b4c35855bb11ea4e9fbc53594ccccb5fb82dfd317ef8c2c5a3`). User-scoped Gradle 8.2 on PATH (`system` mode) is preferred to avoid mutating the fixture. If Wrapper JAR is used, verify SHA-256 (`a8451eeda314d0568b5340498b36edf147a8f0d692c5ff58082d477abe9146e4`).
-  - Dependency Downloads: Strict separation between (1) Gradle distribution archive, (2) Android SDK packages via `sdkmanager`, (3) Maven build plugin resolution (AGP 8.2.2 + R8 8.2.33 from Google Maven/Maven Central), and (4) Offline cached execution. Silent downloads are strictly forbidden; dependencies must be resolved into user cache before offline builds.
-- **Accurate Toolchain Status Wording**: Toolchain tables and documentation must distinguish: (1) Selected Target Versions based on AGP compatibility docs (JDK 17, Gradle 8.2, AGP 8.2.2, SDK 34, Build-Tools 34.0.0); (2) Tools detected on the current host; and (3) Versions validated through a successful live build. Never claim end-to-end testing or toolchain validation until a real build succeeds.
-- **Dual-Evidence Verification**: `CHK-SYM-01` inspects both `mapping.txt` and actual output `classes.dex` class descriptors to verify that fixture symbols were actually removed from DEX bytecode.
-- **No Overwriting Artifacts**: Existing destination files (including protected APKs, standalone audit reports designated via `-o / --output`, and private mapping files designated via `--mapping-out`) are never overwritten without explicit `--overwrite` or `overwrite_existing: true`. Overwrite protection raises `OverwriteError` early during preflight checks, standalone verification, and within the protection pipeline.
-- **Zero Logged Credentials**: Passwords referenced exclusively via environment variable names; never passed in CLI flags, printed in reports, or logged.
-
-### Isolation Guarantees vs. OS Sandboxing & Build Execution Risks
-- **Isolated Staging Directory**: An ephemeral directory (`tempfile.gettempdir() / "appshield_staging" / build_<uuid>`) where source files are copied.
-- **Filesystem Change Protection**: Cryptographic SHA-256 pre/post manifest comparison, sensitive credential exclusions, and overwrite guards on output artifacts.
-- **Crucial Distinction from OS Sandbox**: AppShield's staging workspace is a **filesystem copy isolation and verification mechanism, NOT an operating-system kernel process sandbox** (such as Linux namespaces/seccomp, macOS seatbelt, or Windows AppContainer). Subprocesses executed within the staging area (such as Gradle, R8, or Java) run with standard operating system privileges under the user's OS account.
-- **Build Execution Risks**: Gradle build scripts (`build.gradle`, `settings.gradle`, plugins) execute arbitrary Groovy/Kotlin JVM bytecode capable of network access and filesystem modification.
-- **Plan 03-03 Policy**: All testing in Plan 03-03 and Phase 3 runs exclusively against the controlled, disposable sample project (`tests/fixtures/sample_android_gradle_project/`). Never run automated tests against untrusted or arbitrary external developer projects.
-- **Future Untrusted Builds Policy**: Before any future release builds arbitrary or untrusted developer projects, AppShield must define:
-  1. An execution threat model acknowledging that build tools execute developer-supplied code;
-  2. Explicit user consent and confirmation requirements before triggering build processes;
-  3. Appropriate isolation controls (containerization, virtual machines, or `--offline` build flags) or explicit documentation that running a build requires trusting the project's build scripts.
-
-### Known Limitations
-- **Android**: Arbitrary precompiled APK input is unsupported for R8; requires supported Android Gradle project. Reflection requires explicit keep-rules.
-- **iOS**: Apple App Store Guideline 2.5.2 & W^X memory restrictions strictly forbid binary runtime packers. iOS protection requires a macOS host with Xcode CLI tools.
-- **Windows**: Runtime PE packers (e.g. UPX) trigger false-positive malware detections in Windows Defender; protection must focus on symbol stripping and .NET metadata.
-- **Fundamental Law**: Client-side software executed on an attacker's hardware cannot be made 100% immune to reverse engineering.
+### Local-First vs. Network Integrations:
+- **Build & Protection Pipeline**: 100% local-first and offline by default. Zero outbound sockets, zero telemetry, and zero remote dependencies during protection and verification. Network access for dependency resolution requires explicit user authorization (`--allow-network-dependencies`).
+- **Protected Application Runtime**: Local runtime defenses (self-integrity, anti-debug, signature pinning) operate completely self-contained and fully support offline applications. Network-dependent services (Play Integrity, server-side attestation) are strictly optional, opt-in configurations for connected apps and are never mandatory for offline operation.
 
 ---
 
-## 7. Third-Party Tools, Licenses & Integration Boundaries
+## 5. Current Implementation Status
 
-| Tool | License | Role | Integration Boundary |
-|:---|:---|:---|:---|
-| **Gradle / AGP / R8** | Apache 2.0 / BSD-3-Clause | Android build & R8 shrinking/obfuscation | Invocations via project's `gradlew` inside staging sandbox |
-| **Android Build-Tools** | Apache 2.0 | Alignment & signing (`zipalign`, `apksigner`) | Subprocess CLI invocations |
-| **JADX / Baksmali** | Apache 2.0 / BSD-style | Informational decompilation verification | Headless CLI subprocess |
-| **Obfuscar** | MIT | Windows .NET assembly obfuscation (Phase 6) | Subprocess CLI |
-| **Apple Xcode CLI** | Proprietary (macOS) | iOS symbol stripping & signing (`strip`, `codesign`) (Phase 5) | Native macOS subprocess commands |
+### Platform Scope
+Android is the active, first implementation platform. iOS and Windows architectures are deferred to post-Android milestones.
+
+### Toolchain Baseline Status
+- **Empirically Verified Toolchain**:
+  - OpenJDK: 17 LTS (17.0.x)
+  - Gradle: 8.2
+  - Android Gradle Plugin (AGP): 8.2.2
+  - Android SDK Platform: API Level 34 (Android 14)
+  - Android Build-Tools: 34.0.0 (`zipalign`, `apksigner`)
+  - Dalvik Executable (DEX): DEX 035 verified on live sample builds; DEX 035, 037, 038, 039 verified via synthetic parser unit tests.
+- **Expected / Target Compatibility** *(Pending Multi-Project Live Verification)*:
+  - Gradle 8.0 – 8.5
+  - AGP 8.0.x – 8.2.x
+  - Android API Levels: 24 to 34
+- **Untested / Out of Scope for Current Baseline**:
+  - Gradle 8.6+ / 9.x
+  - AGP 8.3+, 8.4+, 8.5+, 8.6+
+  - Android SDK 35+ (Android 15)
+  - Production DEX 040 binaries
+
+### Implemented Capabilities
+- **Python CLI Core**: Cross-platform CLI entry point (`appshield`) supporting subcommands: `protect`, `verify`, `doctor`, and `info`.
+- **Toolchain Orchestration**: Android Gradle Plugin (AGP 8.2.2) and Google R8 (8.2.47) build execution via `GradleRunner` supporting offline builds, timeout termination, process tree kill (`taskkill`/`killpg`), and secret redaction.
+- **Isolated Staging & Source Immutability**: Ephemeral `.appshield_staging/<build_id>` workspace staging with sensitive file exclusion (`.git`, `build`, `*.jks`, `local.properties`, `.env`). Pre- and post-build SHA-256 source tree manifests enforce 100% bit-for-bit immutability on both normal and exception paths via `SandboxManager`.
+- **DEX Bytecode & Mapping Verification**: Pure-Python defensive DEX inspector (`inspect_apk_dex`) supporting string/class table extraction and synthetic DEX generation. R8 `mapping.txt` parser (`parse_r8_mapping`).
+- **Objective Verification Engine**: `VerificationEngine` with 7 empirical checks:
+  - `CHK-BLD-01` (Actual Build Completion — `VERIFIED`)
+  - `CHK-APK-01` (APK Structure & DEX Validity — `VERIFIED`)
+  - `CHK-SYM-01` (Dual-Evidence Symbol Renaming — `VERIFIED` direct match, `HEURISTIC` security inference)
+  - `CHK-SIG-01` (Cryptographic Signature Verification — `VERIFIED`)
+  - `CHK-ALN-01` (4-Byte ZIP Alignment Verification — `VERIFIED`)
+  - `CHK-STR-01` (String Constant Pool Heuristic Scan — `HEURISTIC`)
+  - `CHK-CMP-01` (Informational Structural Inspection — `INFORMATIONAL`)
+- **Signing & Credential Safety**: Environment-variable-masked keystore passwords (`apksigner --ks-pass env:VAR`, `keytool -storepass:env`), disposable test keystore generation, non-production confirmation guards, and subprocess environment stripping via `build_safe_env()`.
+- **Diagnostic Doctor & Offline Cache Inspection**: Prerequisite validation for Java 17, `JAVA_HOME`, `ANDROID_HOME`, SDK Platform 34, Build-Tools 34.0.0, `zipalign`, `apksigner`, and non-networked local Gradle cache inspection (`check_gradle_cache_dependencies`).
+- **Structured Error Handling**: Zero raw tracebacks; clean error categorization (`Operational Error`, `Configuration Error`, `Overwrite Error`) with actionable remediation hints.
+- **Automated Quality Gates**: Complete unit and integration test matrix running in Python 3.10, 3.11, and 3.12 via GitHub Actions, with pinned Ruff 0.17.4, Mypy type-checking, Bandit security scanning, and package building (`uv build`).
+
+### Current Milestone & Repository State
+- **Phase A Local Commit**: `6db1251f40f8a729e3b0c84e6e4fc1d803dea305` ("Remediate Phase A general Android Gradle product blockers").
+- **Phase A.1 Status**: Working tree contains uncommitted Phase A.1 corrections across 14 tracked files and 1 untracked test file (`tests/test_phase_a1_verification_integrity.py`).
+- **Test Suite Results**: `371 passed, 1 warning` with `93%` statement coverage. Ruff, Mypy, Bandit, and `uv build` pass with zero errors.
+- **Fixture Integrity**: Both `tests/fixtures/sample_android_gradle_project/` and `tests/fixtures/unrelated_android_gradle_project/` are 100% clean relative to committed contents.
+- **Validation Reality**:
+  - Live Gradle compilation and R8 obfuscation have been demonstrated **only** on the controlled Groovy fixture `sample_android_gradle_project/` (1 live build, 1 disposable-signed APK, 1 live launch on Android API 37 emulator).
+  - The first offline protection attempt against `unrelated_android_gradle_project/` (Kotlin DSL `:mobile` module) failed cleanly during Gradle project configuration because Kotlin DSL runtime dependencies (`org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.20` and `kotlin-reflect:1.8.20`) were missing from the local offline Gradle cache.
+  - **No genuine R8 output or DEX verification evidence exists yet for the unrelated Kotlin DSL fixture.**
+  - **No stable v1.0 release or PyPI package has been published.**
 
 ---
 
-## 8. Permanent Review & Operational Rules
+## 6. Engineering Constraints
 
-### Rule: Read MEMORY.md First
-Read this file before starting ANY new task. If an instruction conflicts with approved requirements or roadmap, surface the conflict immediately instead of silently choosing.
+1. **Python CLI Architecture**: Built as a standard Python 3.10+ package with standard library tooling (`subprocess`, `pathlib`, `zipfile`, `hashlib`), using external tools as isolated subprocesses.
+2. **Vanilla Implementation**: No unnecessary third-party runtime frameworks or heavy binary compile steps unless justified and approved.
+3. **Toolchain Standards**: Target toolchain is OpenJDK 17 + Gradle 8.2 + AGP 8.2.2 + Android SDK Platform 34 + Build-Tools 34.0.0 (`zipalign`, `apksigner`). Do not claim unvalidated support for newer versions.
+4. **Local-First & Zero Telemetry by Default**: 100% offline local execution by default for build protection. Zero phone-home network calls, zero tracking, zero remote telemetry.
+5. **No Cloud Dependency for Offline Apps**: Code protection, transformation, and verification operate entirely on the developer's workstation. Runtime network integrations are strictly opt-in.
+6. **Source-Tree Immutability**: Original source code is treated strictly as read-only; staging copies are made in ephemeral directories.
+7. **Secure Subprocess Execution**: No `shell=True` on untrusted inputs; arguments passed as sanitized token lists; process trees terminated on timeout.
+8. **Strict Credential Isolation**: Signing credentials passed via environment variable names or file descriptors; child environments stripped of unrelated host tokens via `build_safe_env()`.
+9. **Explicit Authorization**: Network access (`--allow-network-dependencies`), production signing (`--allow-production-signing`), and file overwrites (`--overwrite`) require explicit user flags.
+10. **No Silent Git or Registry Actions**: Never modify Machine/User persistent environment variables in the Windows Registry; never push commits or create release tags without explicit user instructions.
+11. **Non-Bypassable Verification Gates**: Mandatory security checks cannot be bypassed by configuration toggles or lenient flags.
 
-### Rule: Permanent 10-Step Full-Review Gate
-After completing EVERY task, planning phase, code change, or implementation prompt:
-1. Run all applicable automated tests.
-2. Run a full code review of all changed files.
-3. Run available static analysis, linting, and type checks.
-4. Run a security scan using available, appropriate tools.
-5. Check for exposed secrets, unsafe file operations, unintended network activity, and original source modifications.
-6. Check for unnecessary complexity and duplicated code.
-7. Verify that the implementation meets the task's acceptance criteria.
-8. Report every failed, skipped, or unavailable check honestly.
-9. Update `MEMORY.md` and the project state documents.
-10. Summarize what changed, what was tested, the results, and any remaining risks.
+---
 
-*Do not claim a scan passed if it was not executed. Do not hide failures or weaken tests.*
+## 7. Development Governance
 
-### Rule: Protect Original Code & Credentials
-- **Never modify** original application source files during protection operations.
-- **Keep output strictly separated** in designated directories (e.g., `dist/protected/`).
-- **Never expose or persist** signing keys, keystore passwords, or proprietary code in logs or cache files.
-- Test destructive or risky operations **only on disposable sample projects**.
-- Require **explicit approval** before destructive actions or major architectural changes.
+All future development agents working on AppShield must adhere to these twelve operational rules:
 
-### Mistakes to Avoid Repeating
-- Do not claim arbitrary precompiled APKs can be reliably obfuscated using standalone R8; use supported Android Gradle projects.
-- Do not attempt in-memory dynamic anti-tampering/hook evasion without a source-level SDK; black-box injection breaks apps and causes App Store rejections.
-- Do not use UPX or runtime PE packers on Windows; they trigger AV false positives.
-- Do not compute or report a composite "resistance score"; report objective counts and precise evidence classifications.
-- Do not vendor or statically import GPL code into the permissive core.
+1. **Read MEMORY.md and PRD.md First**: Understand established architecture, threat models, and progress before making changes. Consult `PRD.md` as the authoritative source for functional requirements and `ARCHITECTURE.md` for technical designs.
+2. **Inspect Current Git State**: Run `git status` and `git diff` before and after operations; never blindly overwrite or discard working-tree changes.
+3. **Separate Implemented from Planned**: Never describe planned capabilities (e.g., native compilation, runtime anti-hooking, profiles) as completed features.
+4. **Follow Approved Engineering Phases**: Execute work according to active roadmap phases and specific task scopes.
+5. **Work Incrementally**: Implement targeted, cohesive changes rather than broad, speculative rewrites.
+6. **Add Tests for Every Mechanism**: Every new protection check, adapter rule, or CLI option must include corresponding unit and integration tests.
+7. **Provide Empirical Evidence for Security Claims**: Back every protection claim with real binary evidence (mapping entries, DEX descriptors, alignment bytes).
+8. **Never Claim Completion from Mocked Tests Alone**: Differentiate synthetic/mocked test validation from genuine toolchain and runtime execution.
+9. **Never Execute Network or Remote Actions Without Authorization**: Do not download tools, push to GitHub, or publish packages without explicit approval.
+10. **Preserve User Changes & Fixtures**: Keep test fixtures clean and preserve user modifications across sessions.
+11. **Report Limitations and Failures Honestly**: When an offline build fails or dependencies are missing, report the exact root cause without masking errors.
+12. **Stop for Review at Major Milestones**: Pause and request user review upon completing phases, before merging branches, or prior to live external operations.
+
+---
+
+## 8. Document Hierarchy & Product Success Definition
+
+### Hierarchy of Project Documentation
+- **`MEMORY.md` (This File)**: Persistent project memory, operational governance, and developer instructions.
+- **`PRD.md`**: Authoritative product vision, requirements, functionality, and acceptance criteria.
+- **`ARCHITECTURE.md`**: Technical architecture and implementation design.
+- **`ROADMAP.md`**: Development phases and milestones.
+- **`STATE.md`**: Current implementation progress tracking.
+
+### Product Success Definition
+AppShield achieves product success when an independent Android developer can:
+1. Point AppShield at an arbitrary, real-world Android Gradle application (Groovy or Kotlin DSL, single- or multi-module).
+2. Execute the protection pipeline with zero manual source modification.
+3. Verify that the output binary demonstrates genuine class renaming, string sanitization, and cryptographic integrity.
+4. Successfully install and run the protected application on standard Android hardware or emulators without runtime crashes.
+5. Receive an objective, auditable verification report detailing verified defenses, heuristic findings, and transparent limitations.
+
+A stable v1.0 release requires multi-project compatibility, genuine Gradle/R8 execution, runtime stability validation, and demonstrable reverse-engineering resistance against real-world decompilers.

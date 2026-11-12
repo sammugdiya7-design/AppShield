@@ -10,6 +10,7 @@ import dataclasses
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 
 from appshield.adapters.base import (
@@ -45,10 +46,12 @@ from appshield.sandbox import (
     SandboxError,
     SandboxManager,
     SourceImmutabilityError,
+    compute_file_sha256,
 )
 from appshield.signing import SigningError, align_and_sign_apk
 from appshield.verify import (
     VerificationEngine,
+    evaluate_verification_policy,
     export_report_json,
     format_report_markdown,
 )
@@ -970,6 +973,7 @@ class AndroidPipelineAdapter(PlatformAdapter):
                         "Offline mode enforced (--offline). Using local Gradle and Android dependency cache."
                     )
 
+                build_started_at = time.time()
                 build_res = active_runner.run_task(config.android.gradle_task)
                 if not build_res.success:
                     err_diag = redact_secrets(
@@ -993,6 +997,8 @@ class AndroidPipelineAdapter(PlatformAdapter):
                     logs.append(
                         f"Gradle task '{config.android.gradle_task}' failed with exit code {build_res.exit_code}."
                     )
+                    if config.input.verify_source_immutability:
+                        sandbox.verify_source_integrity()
                     return ProtectionResult(
                         success=False,
                         protected_artifact_path=None,
@@ -1021,7 +1027,7 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 validate_apk_file(raw_apk)
                 logs.append(f"Located and validated release APK: '{raw_apk.name}'")
 
-                # 9. Locate R8 mapping file and securely retain if requested
+                # 9. Locate R8 mapping file and verify staging provenance (defer export until verified & immutable)
                 mapping_file = locate_r8_mapping(
                     staging_dir=staging_dir,
                     module_name=module_name,
@@ -1031,6 +1037,8 @@ class AndroidPipelineAdapter(PlatformAdapter):
                     logs.append(
                         f"R8 mapping file was not generated for module '{module_name}' variant '{config.android.build_variant}'."
                     )
+                    if config.input.verify_source_immutability:
+                        sandbox.verify_source_integrity()
                     return ProtectionResult(
                         success=False,
                         protected_artifact_path=None,
@@ -1043,23 +1051,13 @@ class AndroidPipelineAdapter(PlatformAdapter):
                         metadata={"error_type": "MissingMappingFile"},
                     )
 
-                logs.append(f"Located R8 mapping file: '{mapping_file.name}'")
-                if mapping_out is not None:
-                    mapping_out_path = mapping_out.resolve()
-                    if (
-                        mapping_out_path.exists()
-                        and not config.output.overwrite_existing
-                    ):
-                        raise OverwriteError(
-                            f"Destination mapping file already exists: '{mapping_out_path}'. "
-                            "AppShield will not overwrite existing mapping files without authorization. "
-                            "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
-                        )
-                    mapping_out_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(mapping_file, mapping_out_path)
-                    logs.append(
-                        f"Securely retained R8 mapping file to '{mapping_out_path}'"
+                if not mapping_file.resolve().is_relative_to(staging_dir.resolve()):
+                    raise SandboxError(
+                        f"Located R8 mapping file escapes staging workspace: '{mapping_file}'"
                     )
+
+                located_mapping_sha256 = compute_file_sha256(mapping_file)
+                logs.append(f"Located R8 mapping file: '{mapping_file.name}'")
 
                 # 10. Align and sign within staging sandbox
                 signing_res = align_and_sign_apk(
@@ -1073,11 +1071,16 @@ class AndroidPipelineAdapter(PlatformAdapter):
                     f"Alignment and signing completed: signature_type='{signing_res.signature_type}'"
                 )
 
-                # Associate build result with the final aligned/signed APK for verification evidence
+                # Bind build provenance to final aligned/signed APK and current build mapping
+                provenance_meta = dict(build_res.metadata)
+                provenance_meta.setdefault("build_id", sandbox.build_id)
+                provenance_meta["build_started_at"] = str(build_started_at)
+                provenance_meta["mapping_sha256"] = located_mapping_sha256
                 build_res = dataclasses.replace(
                     build_res,
                     apk_path=signing_res.final_apk_path,
-                    mapping_file=mapping_file or build_res.mapping_file,
+                    mapping_file=build_res.mapping_file or mapping_file,
+                    metadata=provenance_meta,
                 )
 
                 # 11. Execute configured empirical verification checks
@@ -1099,10 +1102,18 @@ class AndroidPipelineAdapter(PlatformAdapter):
                     is_real_build=not build_res.is_simulated,
                     expected_fixture_classes=expected_fixture_classes,
                     expected_entry_points=entries,
+                    build_id=provenance_meta.get("build_id"),
                     verification_config=config.verification,
                 )
 
-                # 12. Generate and export audit reports
+                # 12. Verify original source tree immutability BEFORE publishing ANY output, mapping, or report
+                if config.input.verify_source_immutability:
+                    sandbox.verify_source_integrity()
+                    logs.append(
+                        "Verified original source tree immutability (SHA-256 matches pre-build state)."
+                    )
+
+                # 13. Export audit reports after source integrity is confirmed
                 audit_report_dest = config.output.dir / "audit_report.json"
                 audit_report_dest.parent.mkdir(parents=True, exist_ok=True)
                 export_report_json(
@@ -1119,18 +1130,11 @@ class AndroidPipelineAdapter(PlatformAdapter):
                     format_report_markdown(verification_report), encoding="utf-8"
                 )
 
-                # 13. Verify original source tree immutability
-                if config.input.verify_source_immutability:
-                    sandbox.verify_source_integrity()
-                    logs.append(
-                        "Verified original source tree immutability (SHA-256 matches pre-build state)."
-                    )
-
                 # 14. Release Acceptance & Simulation Barrier:
                 # Simulation/mocked execution is NEVER exported as a protected release
                 if build_res.is_simulated:
                     logs.append(
-                        "Simulation mode: Artifact export to production directory suppressed."
+                        "Simulation mode: Artifact and mapping export suppressed."
                     )
                     return ProtectionResult(
                         success=False,
@@ -1143,6 +1147,7 @@ class AndroidPipelineAdapter(PlatformAdapter):
                             "signature_type": signing_res.signature_type,
                             "is_aligned": str(signing_res.is_aligned),
                             "is_verified_protected": "False",
+                            "verification_status": verification_report.verification_status,
                             "is_simulated": "True",
                         },
                         verification_report=verification_report,
@@ -1150,10 +1155,32 @@ class AndroidPipelineAdapter(PlatformAdapter):
                         is_verified_protected=False,
                     )
 
-                # Protected release acceptance criteria
+                # Protected release acceptance and consistent fail_on_check_failure policy
+                policy = evaluate_verification_policy(
+                    verification_report,
+                    config.verification,
+                    require_build_check=True,
+                )
                 is_acceptable = verification_report.is_verified_protected
                 exported_path = None
                 if is_acceptable:
+                    if mapping_out is not None:
+                        mapping_out_path = mapping_out.resolve()
+                        if (
+                            mapping_out_path.exists()
+                            and not config.output.overwrite_existing
+                        ):
+                            raise OverwriteError(
+                                f"Destination mapping file already exists: '{mapping_out_path}'. "
+                                "AppShield will not overwrite existing mapping files without authorization. "
+                                "Use '--overwrite' or set 'output.overwrite_existing: true' to permit overwriting."
+                            )
+                        mapping_out_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(mapping_file, mapping_out_path)
+                        logs.append(
+                            f"Securely retained R8 mapping file to '{mapping_out_path}'"
+                        )
+
                     rel_signed_apk = signing_res.final_apk_path.relative_to(staging_dir)
                     exported_path = sandbox.export_artifact(
                         staged_relative_path=rel_signed_apk,
@@ -1164,56 +1191,56 @@ class AndroidPipelineAdapter(PlatformAdapter):
                     logs.append(
                         f"Exported verified protected artifact to '{exported_path}'"
                     )
-                else:
-                    logs.append(
-                        "Release acceptance failed: artifact did not meet all verified-protected criteria."
+                    return ProtectionResult(
+                        success=True,
+                        protected_artifact_path=exported_path,
+                        logs=logs,
+                        error_message=None,
+                        metadata={
+                            "signature_type": signing_res.signature_type,
+                            "is_aligned": str(signing_res.is_aligned),
+                            "r8_mapping_found": "True",
+                            "r8_mapping_path": str(mapping_file),
+                            "is_verified_protected": "True",
+                            "verification_status": verification_report.verification_status,
+                            "policy_status": policy.status_label,
+                            "is_simulated": "False",
+                        },
+                        verification_report=verification_report,
+                        audit_report_path=audit_report_dest,
+                        is_verified_protected=True,
                     )
-                    if config.verification.fail_on_check_failure:
-                        return ProtectionResult(
-                            success=False,
-                            protected_artifact_path=None,
-                            logs=logs,
-                            error_message=(
-                                "Protection verification failed: artifact did not meet all verified-protected criteria."
-                            ),
-                            metadata={
-                                "signature_type": signing_res.signature_type,
-                                "is_aligned": str(signing_res.is_aligned),
-                                "is_verified_protected": "False",
-                                "is_simulated": "False",
-                            },
-                            verification_report=verification_report,
-                            audit_report_path=audit_report_dest,
-                            is_verified_protected=False,
-                        )
 
+                logs.append(policy.message)
+                cmd_succeeded = policy.command_exit_code == 0
                 return ProtectionResult(
-                    success=is_acceptable,
-                    protected_artifact_path=exported_path,
+                    success=cmd_succeeded,
+                    protected_artifact_path=None,
                     logs=logs,
-                    error_message=(
-                        None
-                        if is_acceptable
-                        else "Artifact was not verified as protected."
-                    ),
+                    error_message=None if cmd_succeeded else policy.message,
                     metadata={
                         "signature_type": signing_res.signature_type,
                         "is_aligned": str(signing_res.is_aligned),
-                        "r8_mapping_found": str(mapping_file is not None),
-                        "r8_mapping_path": str(mapping_file) if mapping_file else "",
-                        "is_verified_protected": str(
-                            verification_report.is_verified_protected
-                        ),
+                        "r8_mapping_found": "True",
+                        "r8_mapping_path": str(mapping_file),
+                        "is_verified_protected": "False",
+                        "verification_status": verification_report.verification_status,
+                        "policy_status": policy.status_label,
                         "is_simulated": "False",
                     },
                     verification_report=verification_report,
                     audit_report_path=audit_report_dest,
-                    is_verified_protected=verification_report.is_verified_protected,
+                    is_verified_protected=False,
                 )
         except (OverwriteError, SourceImmutabilityError):
             raise
         except GradleTimeoutError as e:
             err_msg = redact_secrets(str(e), secrets_to_redact)
+            if sandbox.integrity_violation is not None:
+                err_msg += f"\nSource integrity violation detected: {sandbox.integrity_violation}"
+                logs.append(
+                    f"Source integrity violation detected: {sandbox.integrity_violation}"
+                )
             logs.append(f"Gradle build timed out after {e.timeout_seconds:.1f}s.")
             return ProtectionResult(
                 success=False,
@@ -1223,6 +1250,9 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 metadata={
                     "error_type": "GradleTimeoutError",
                     "timeout_seconds": str(e.timeout_seconds),
+                    "source_integrity_verified": str(
+                        sandbox.integrity_violation is None
+                    ),
                 },
             )
         except GradleExecutionError as e:
@@ -1240,6 +1270,11 @@ class AndroidPipelineAdapter(PlatformAdapter):
                     "\nRemediation: Missing offline Gradle dependencies detected. "
                     "Re-run with '--allow-network-dependencies' once to populate the local Gradle cache."
                 )
+            if sandbox.integrity_violation is not None:
+                err_msg += f"\nSource integrity violation detected: {sandbox.integrity_violation}"
+                logs.append(
+                    f"Source integrity violation detected: {sandbox.integrity_violation}"
+                )
             logs.append(f"Gradle build failed with exit code {e.exit_code}.")
             return ProtectionResult(
                 success=False,
@@ -1249,6 +1284,9 @@ class AndroidPipelineAdapter(PlatformAdapter):
                 metadata={
                     "error_type": "GradleExecutionError",
                     "exit_code": str(e.exit_code),
+                    "source_integrity_verified": str(
+                        sandbox.integrity_violation is None
+                    ),
                 },
             )
         except (
@@ -1262,11 +1300,21 @@ class AndroidPipelineAdapter(PlatformAdapter):
             OSError,
         ) as e:
             err_msg = redact_secrets(str(e), secrets_to_redact)
+            if sandbox.integrity_violation is not None:
+                err_msg += f"\nSource integrity violation detected: {sandbox.integrity_violation}"
+                logs.append(
+                    f"Source integrity violation detected: {sandbox.integrity_violation}"
+                )
             logs.append(f"Pipeline error ({type(e).__name__}): {err_msg}")
             return ProtectionResult(
                 success=False,
                 protected_artifact_path=None,
                 logs=logs,
                 error_message=err_msg,
-                metadata={"error_type": type(e).__name__},
+                metadata={
+                    "error_type": type(e).__name__,
+                    "source_integrity_verified": str(
+                        sandbox.integrity_violation is None
+                    ),
+                },
             )

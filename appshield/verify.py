@@ -82,6 +82,18 @@ class ObjectiveCheckResult:
 
 
 @dataclass(frozen=True)
+class VerificationPolicyResult:
+    """Consistent CLI exit and release status outcome for protect and verify."""
+
+    command_exit_code: int
+    status_label: Literal["PROTECTED", "STATIC_PASSED", "UNVERIFIED", "REJECTED"]
+    mandatory_checks_ok: bool
+    missing_or_failed_mandatory: list[str]
+    non_mandatory_failures: list[str]
+    message: str
+
+
+@dataclass(frozen=True)
 class VerificationReport:
     """Structured, reproducible verification audit report."""
 
@@ -93,6 +105,43 @@ class VerificationReport:
     objective_checks: list[ObjectiveCheckResult]
     is_verified_protected: bool
     disclaimer: str
+
+    @property
+    def verification_status(self) -> str:
+        """Distinguish verified protection, static-only inspection, unverified warnings, and rejected/incomplete operations."""
+        if self.is_verified_protected:
+            return "VERIFIED PROTECTED"
+        if not self.artifact.get("is_real_build", True):
+            return "INCOMPLETE (Simulated Build)"
+
+        sig_required = bool(
+            self.artifact.get(
+                "signing_required",
+                self.artifact.get("signature_type", "unsigned") != "unsigned",
+            )
+        )
+        ver_enabled = bool(self.artifact.get("verification_enabled", True))
+        if not ver_enabled:
+            return "REJECTED (Verification Disabled)"
+
+        checks_by_id = {c.check_id: c for c in self.objective_checks}
+        static_mandatory = {"CHK-APK-01", "CHK-SYM-01", "CHK-ALN-01"}
+        if sig_required:
+            static_mandatory.add("CHK-SIG-01")
+
+        if any(c.status == "INCONCLUSIVE" for c in self.objective_checks):
+            return "REJECTED (Inconclusive Check Evidence)"
+        if any(
+            (checks_by_id.get(cid) is None or checks_by_id[cid].status != "PASS")
+            for cid in static_mandatory
+        ):
+            return "REJECTED (Mandatory Check Failed or Skipped)"
+        if any(c.status == "FAIL" for c in self.objective_checks):
+            return "UNVERIFIED (Non-Mandatory Check Failed)"
+        bld_chk = checks_by_id.get("CHK-BLD-01")
+        if bld_chk is not None and bld_chk.status == "SKIPPED":
+            return "STATIC CHECKS PASSED (Build Session Not Attached)"
+        return "REJECTED (Incomplete Mandatory Evidence)"
 
     @property
     def is_installation_ready(self) -> bool:
@@ -139,6 +188,7 @@ class VerificationReport:
             "artifact": self.artifact,
             "summary": self.summary,
             "is_verified_protected": self.is_verified_protected,
+            "verification_status": self.verification_status,
             "is_installation_ready": self.is_installation_ready,
             "installation_readiness_status": self.installation_readiness_status,
             "objective_checks": [asdict(c) for c in self.objective_checks],
@@ -147,6 +197,191 @@ class VerificationReport:
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
+
+
+STANDARD_LIBRARY_DESCRIPTOR_PREFIXES = (
+    "android.",
+    "androidx.",
+    "java.",
+    "javax.",
+    "kotlin.",
+    "kotlinx.",
+    "dalvik.",
+    "sun.",
+    "com.android.",
+    "com.google.",
+    "org.jetbrains.",
+    "org.intellij.",
+)
+OBFUSCATED_SHORT_DESCRIPTOR_REGEX = re.compile(
+    r"^(?:[a-z]{1,2}\.)*[a-z]{1,2}(?:\$.+)?$"
+)
+
+
+def _descriptor_to_class_name(descriptor: str) -> str:
+    if descriptor.startswith("L") and descriptor.endswith(";"):
+        return descriptor[1:-1].replace("/", ".")
+    return descriptor
+
+
+def _is_obfuscated_or_app_descriptor(descriptor: str, app_packages: set[str]) -> bool:
+    cls_name = _descriptor_to_class_name(descriptor)
+    for pkg in app_packages:
+        if cls_name == pkg or cls_name.startswith(f"{pkg}."):
+            return True
+    if cls_name.startswith(STANDARD_LIBRARY_DESCRIPTOR_PREFIXES):
+        return False
+    if "." not in cls_name:
+        return True
+    return bool(OBFUSCATED_SHORT_DESCRIPTOR_REGEX.match(cls_name))
+
+
+def evaluate_verification_policy(
+    report: VerificationReport,
+    verification_config: VerificationConfig | None = None,
+    *,
+    require_build_check: bool = False,
+) -> VerificationPolicyResult:
+    """
+    Evaluate consistent protection and exit policy across `protect` and `verify`.
+
+    Security invariant:
+      `fail_on_check_failure: false` ONLY suppresses non-zero command exit on
+      non-mandatory check failures once all applicable mandatory checks pass.
+      It NEVER allows missing/failed mandatory checks to produce exit code 0 or
+      an unverified APK to be marked/exported as protected.
+    """
+    ver_enabled = (
+        verification_config.enabled
+        if verification_config is not None
+        else bool(report.artifact.get("verification_enabled", True))
+    )
+    fail_on_failure = (
+        verification_config.fail_on_check_failure
+        if verification_config is not None
+        else True
+    )
+    sig_required = bool(
+        report.artifact.get(
+            "signing_required",
+            report.artifact.get("signature_type", "unsigned") != "unsigned",
+        )
+    )
+
+    if not ver_enabled:
+        return VerificationPolicyResult(
+            command_exit_code=1,
+            status_label="REJECTED",
+            mandatory_checks_ok=False,
+            missing_or_failed_mandatory=sorted(MANDATORY_ACCEPTANCE_CHECK_IDS),
+            non_mandatory_failures=[],
+            message=(
+                "Verification is disabled in configuration ('verification.enabled: false'); "
+                "mandatory protection checks were skipped and artifact is REJECTED."
+            ),
+        )
+
+    applicable_mandatory = {"CHK-APK-01", "CHK-SYM-01", "CHK-ALN-01"}
+    if require_build_check:
+        applicable_mandatory.add("CHK-BLD-01")
+    if sig_required:
+        applicable_mandatory.add("CHK-SIG-01")
+
+    checks_by_id = {c.check_id: c for c in report.objective_checks}
+    missing_or_failed: list[str] = []
+    for cid in sorted(applicable_mandatory):
+        chk = checks_by_id.get(cid)
+        if chk is None or chk.status != "PASS":
+            missing_or_failed.append(f"{cid}:{chk.status if chk else 'MISSING'}")
+
+    # If build check ran and failed/was disabled explicitly by config, always treat as mandatory failure
+    bld_chk = checks_by_id.get("CHK-BLD-01")
+    if (
+        not require_build_check
+        and bld_chk is not None
+        and (
+            bld_chk.status in ("FAIL", "INCONCLUSIVE")
+            or (
+                bld_chk.status == "SKIPPED"
+                and bld_chk.details.get("disabled_by_config")
+            )
+        )
+    ):
+        entry = f"CHK-BLD-01:{bld_chk.status}"
+        if entry not in missing_or_failed:
+            missing_or_failed.append(entry)
+
+    # Inconclusive checks or non-real build execution always block mandatory acceptance
+    inconclusive_ids = [
+        f"{c.check_id}:INCONCLUSIVE"
+        for c in report.objective_checks
+        if c.status == "INCONCLUSIVE"
+    ]
+    for inc in inconclusive_ids:
+        if inc not in missing_or_failed:
+            missing_or_failed.append(inc)
+
+    if require_build_check and not report.artifact.get("is_real_build", False):
+        missing_or_failed.append("REAL_BUILD_REQUIRED")
+
+    if missing_or_failed:
+        return VerificationPolicyResult(
+            command_exit_code=1,
+            status_label="REJECTED",
+            mandatory_checks_ok=False,
+            missing_or_failed_mandatory=missing_or_failed,
+            non_mandatory_failures=[],
+            message=(
+                "Verification REJECTED: mandatory protection checks failed or were skipped "
+                f"({', '.join(missing_or_failed)}). 'fail_on_check_failure: false' cannot bypass mandatory checks."
+            ),
+        )
+
+    non_mandatory_failures = [
+        c.check_id
+        for c in report.objective_checks
+        if c.status == "FAIL" and c.check_id not in applicable_mandatory
+    ]
+    if non_mandatory_failures:
+        exit_code = 1 if fail_on_failure else 0
+        suffix = (
+            "failing per 'fail_on_check_failure: true'."
+            if fail_on_failure
+            else "command exited 0 per 'fail_on_check_failure: false', but artifact remains UNVERIFIED and is NOT exported as protected."
+        )
+        return VerificationPolicyResult(
+            command_exit_code=exit_code,
+            status_label="UNVERIFIED",
+            mandatory_checks_ok=True,
+            missing_or_failed_mandatory=[],
+            non_mandatory_failures=non_mandatory_failures,
+            message=(
+                "Verification UNVERIFIED: non-mandatory check(s) failed "
+                f"({', '.join(non_mandatory_failures)}); {suffix}"
+            ),
+        )
+
+    if report.is_verified_protected:
+        return VerificationPolicyResult(
+            command_exit_code=0,
+            status_label="PROTECTED",
+            mandatory_checks_ok=True,
+            missing_or_failed_mandatory=[],
+            non_mandatory_failures=[],
+            message="Verified Protected Release: YES (all mandatory checks passed).",
+        )
+
+    return VerificationPolicyResult(
+        command_exit_code=0,
+        status_label="STATIC_PASSED",
+        mandatory_checks_ok=True,
+        missing_or_failed_mandatory=[],
+        non_mandatory_failures=[],
+        message=(
+            "Static verification checks PASSED, but artifact is UNVERIFIED RELEASE "
+            "(no attached Gradle build execution session; use 'appshield protect' for full build-to-APK verification)."
+        ),
+    )
 
 
 class VerificationEngine:
@@ -345,6 +580,7 @@ class VerificationEngine:
         mapping: R8MappingSummary | None,
         expected_fixture_classes: list[str] | None = None,
         expected_entry_points: list[str] | None = None,
+        mapping_error: str | None = None,
     ) -> ObjectiveCheckResult:
         """
         CHK-SYM-01: Dual-evidence symbol verification.
@@ -362,6 +598,24 @@ class VerificationEngine:
             "Verifying that specific class descriptors were renamed provides direct evidence of symbol renaming "
             "for those classes only, not proof of complete application protection or control-flow resistance."
         )
+
+        if mapping_error is not None:
+            return ObjectiveCheckResult(
+                check_id="CHK-SYM-01",
+                name="Dual-Evidence Symbol Verification",
+                category="symbols",
+                outcome="FAILED",
+                status="FAIL",
+                what_it_proves=proves,
+                what_it_does_not_prove=does_not_prove,
+                observed_metric=mapping_error,
+                details={
+                    "mapping_available": False,
+                    "mapping_readable": False,
+                    "mapping_error": mapping_error,
+                },
+                recommendation="Provide a readable, valid R8 mapping.txt generated by the matching release build.",
+            )
 
         if mapping is None:
             return ObjectiveCheckResult(
@@ -411,9 +665,16 @@ class VerificationEngine:
         #    Otherwise (general Android project mode), verify renamed classes recorded in mapping.txt
         #    against compiled DEX class_defs so arbitrary applications work without hardcoded names.
         fixture_classes = expected_fixture_classes or []
+        entry_points = expected_entry_points or []
         verified_obfuscated_count = 0
         missing_retained_count = 0
         generalized_checked_count = 0
+        kept_entries = [
+            cls_map for cls_map in mapping.classes.values() if not cls_map.is_renamed
+        ]
+        verified_kept_count = 0
+        missing_kept_count = 0
+        unmapped_dex: list[str] = []
         verification_mode = (
             "explicit_targets" if fixture_classes else "generalized_mapping"
         )
@@ -472,6 +733,8 @@ class VerificationEngine:
                     leaked_originals.append(orig_desc)
                 elif obf_desc in dex_descriptors:
                     verified_obfuscated_count += 1
+                else:
+                    missing_retained_count += 1
 
             if leaked_originals:
                 preview = ", ".join(leaked_originals[:3])
@@ -480,14 +743,66 @@ class VerificationEngine:
                 )
 
             if verified_obfuscated_count == 0:
-                missing_retained_count = generalized_checked_count
                 discrepancies.append(
                     "None of the renamed obfuscated descriptors in R8 mapping.txt were found in compiled DEX "
                     "class_defs (mapping does not match APK bytecode or classes were eliminated)."
                 )
+            elif missing_retained_count > verified_obfuscated_count:
+                discrepancies.append(
+                    f"Mapping consistency failure: only {verified_obfuscated_count} of {generalized_checked_count} "
+                    f"renamed mapping entries matched DEX class_defs ({missing_retained_count} missing); "
+                    "mapping appears stale or from a different build."
+                )
+
+            # Verify preserved/kept classes corroborate DEX bytecode
+            for cls_map in kept_entries:
+                kept_desc = class_to_descriptor(cls_map.original_name)
+                if kept_desc in dex_descriptors:
+                    verified_kept_count += 1
+                else:
+                    missing_kept_count += 1
+
+            if kept_entries and verified_kept_count == 0:
+                discrepancies.append(
+                    f"None of the {len(kept_entries)} preserved class(es) in mapping.txt exist in DEX bytecode; "
+                    "mapping does not match this APK build."
+                )
+
+            # Reverse check: inspect DEX descriptors absent from mapping.txt
+            mapped_all_output_descs = {
+                class_to_descriptor(c.obfuscated_name) for c in mapping.classes.values()
+            }
+            app_packages = {ep.rsplit(".", 1)[0] for ep in entry_points if "." in ep}
+            unmapped_dex = sorted(
+                d for d in dex_descriptors if d not in mapped_all_output_descs
+            )
+            unmapped_suspicious = [
+                d
+                for d in unmapped_dex
+                if _is_obfuscated_or_app_descriptor(d, app_packages)
+            ]
+            mapped_dex_count = len(dex_descriptors) - len(unmapped_dex)
+            if unmapped_suspicious:
+                preview = ", ".join(unmapped_suspicious[:3])
+                discrepancies.append(
+                    f"APK DEX contains {len(unmapped_suspicious)} obfuscated or application class(es) absent from R8 "
+                    f"mapping.txt ({preview}); mapping appears stale or from another build."
+                )
+            elif len(unmapped_dex) > mapped_dex_count:
+                discrepancies.append(
+                    f"Majority of APK DEX classes ({len(unmapped_dex)}/{len(dex_descriptors)}) are not present in "
+                    "R8 mapping.txt; mapping does not belong to this APK."
+                )
+            elif unmapped_dex and (
+                missing_retained_count > 0 or missing_kept_count > 0
+            ):
+                discrepancies.append(
+                    f"Inconsistent DEX and mapping class sets ({len(unmapped_dex)} unmapped DEX class(es) alongside "
+                    f"{missing_retained_count + missing_kept_count} missing mapping entry/entries); "
+                    "mapping appears stale or from another build."
+                )
 
         # 3. Check entry points when supplied (from project AndroidManifest.xml or caller)
-        entry_points = expected_entry_points or []
         for ep in entry_points:
             ep_desc = class_to_descriptor(ep)
             ep_mapping = None
@@ -560,6 +875,14 @@ class VerificationEngine:
                 "generalized_classes_verified": verified_obfuscated_count
                 if not fixture_classes
                 else 0,
+                "generalized_classes_missing": missing_retained_count
+                if not fixture_classes
+                else 0,
+                "kept_classes_checked": len(kept_entries) if not fixture_classes else 0,
+                "kept_classes_verified": verified_kept_count
+                if not fixture_classes
+                else 0,
+                "unmapped_dex_classes_count": len(unmapped_dex),
                 "entry_points_checked": len(entry_points),
                 "discrepancies_count": len(discrepancies),
                 "has_discrepancies": bool(discrepancies),
@@ -981,17 +1304,30 @@ class VerificationEngine:
             apk_sha256 = ""
             apk_size = 0
 
-        # Compute mapping SHA-256 (keeps raw mapping content private)
+        # Compute mapping SHA-256 and validate readability (keeps raw mapping content private)
         mapping_sha256: str | None = None
-        if mapping_file is not None and mapping_file.is_file():
-            hasher_m = hashlib.sha256()
-            with open(mapping_file, "rb") as mf:
-                while chunk := mf.read(65536):
-                    hasher_m.update(chunk)
-            mapping_sha256 = hasher_m.hexdigest()
+        mapping_error: str | None = None
+        mapping_resolved: Path | None = (
+            mapping_file.resolve() if mapping_file is not None else None
+        )
+        if mapping_resolved is not None:
+            if not mapping_resolved.exists() or not mapping_resolved.is_file():
+                mapping_error = f"R8 mapping file does not exist or is not a file: '{mapping_resolved}'"
+            else:
+                try:
+                    hasher_m = hashlib.sha256()
+                    with open(mapping_resolved, "rb") as mf:
+                        while chunk := mf.read(65536):
+                            hasher_m.update(chunk)
+                    mapping_sha256 = hasher_m.hexdigest()
+                except OSError as e:
+                    mapping_error = (
+                        f"R8 mapping file '{mapping_resolved.name}' is unreadable: {e}"
+                    )
 
-        # Validate build evidence consistency between build_result and artifacts
+        # Validate build evidence consistency and provenance between build_result and artifacts
         evidence_errors: list[str] = []
+        mapping_provenance_errors: list[str] = []
         if build_result is not None:
             if (
                 build_result.apk_path is not None
@@ -1001,14 +1337,62 @@ class VerificationEngine:
                     f"APK path '{resolved_apk}' does not match build result artifact '{build_result.apk_path.resolve()}'"
                 )
             if build_result.mapping_file is not None:
-                if mapping_file is None:
-                    evidence_errors.append(
-                        f"Build result produced mapping '{build_result.mapping_file.resolve()}', but none was provided for verification"
-                    )
-                elif mapping_file.resolve() != build_result.mapping_file.resolve():
-                    evidence_errors.append(
-                        f"Provided mapping file '{mapping_file.resolve()}' does not match build result mapping '{build_result.mapping_file.resolve()}'"
-                    )
+                if mapping_resolved is None:
+                    msg = f"Build result produced mapping '{build_result.mapping_file.resolve()}', but none was provided for verification"
+                    evidence_errors.append(msg)
+                    mapping_provenance_errors.append(msg)
+                elif mapping_resolved != build_result.mapping_file.resolve():
+                    msg = f"Provided mapping file '{mapping_resolved}' does not match build result mapping '{build_result.mapping_file.resolve()}'"
+                    evidence_errors.append(msg)
+                    mapping_provenance_errors.append(msg)
+
+            build_started_raw = build_result.metadata.get("build_started_at")
+            if build_started_raw is not None:
+                try:
+                    build_started_epoch = float(build_started_raw)
+                except ValueError:
+                    build_started_epoch = None
+                if build_started_epoch is not None:
+                    if resolved_apk.is_file():
+                        try:
+                            if resolved_apk.stat().st_mtime < build_started_epoch - 2.0:
+                                evidence_errors.append(
+                                    f"APK '{resolved_apk.name}' has a stale timestamp older than the current build session."
+                                )
+                        except OSError as e:
+                            evidence_errors.append(
+                                f"Failed to inspect APK provenance metadata: {e}"
+                            )
+                    if (
+                        mapping_resolved is not None
+                        and mapping_resolved.is_file()
+                        and mapping_error is None
+                    ):
+                        try:
+                            if (
+                                mapping_resolved.stat().st_mtime
+                                < build_started_epoch - 2.0
+                            ):
+                                msg = f"R8 mapping file '{mapping_resolved.name}' is stale (timestamp predates the current build session)."
+                                evidence_errors.append(msg)
+                                mapping_provenance_errors.append(msg)
+                        except OSError as e:
+                            msg = f"Failed to inspect mapping provenance metadata: {e}"
+                            evidence_errors.append(msg)
+                            mapping_provenance_errors.append(msg)
+
+            expected_mapping_sha = build_result.metadata.get("mapping_sha256")
+            if (
+                expected_mapping_sha is not None
+                and mapping_sha256 is not None
+                and mapping_sha256 != expected_mapping_sha
+            ):
+                msg = (
+                    "R8 mapping SHA-256 mismatch: mapping file contents changed after the build "
+                    "or originated from a different build."
+                )
+                evidence_errors.append(msg)
+                mapping_provenance_errors.append(msg)
 
         # Inspect DEX structures only if any DEX-dependent check is enabled
         dex_dependent_ids = {"CHK-APK-01", "CHK-SYM-01", "CHK-STR-01", "CHK-CMP-01"}
@@ -1032,13 +1416,19 @@ class VerificationEngine:
         mapping_summary: R8MappingSummary | None = None
         if (
             "CHK-SYM-01" in enabled_check_ids
-            and mapping_file is not None
-            and mapping_file.is_file()
+            and mapping_resolved is not None
+            and mapping_error is None
         ):
             try:
-                mapping_summary = parse_r8_mapping(mapping_file)
-            except (MappingParseError, OSError):
+                mapping_summary = parse_r8_mapping(mapping_resolved)
+            except (MappingParseError, OSError) as e:
                 mapping_summary = None
+                mapping_error = (
+                    f"Failed to parse R8 mapping file '{mapping_resolved.name}': {e}"
+                )
+
+        if mapping_error is None and mapping_provenance_errors:
+            mapping_error = "; ".join(mapping_provenance_errors)
 
         sig_required = signing_config is not None and signing_config.enabled
 
@@ -1071,6 +1461,7 @@ class VerificationEngine:
                 mapping_summary,
                 expected_fixture_classes,
                 expected_entry_points,
+                mapping_error=mapping_error,
             )
             if "CHK-SYM-01" in enabled_check_ids
             else self._build_disabled_check_result(
@@ -1180,6 +1571,8 @@ class VerificationEngine:
             "size_bytes": apk_size,
             "is_real_build": is_real_build,
             "signature_type": sig_type,
+            "signing_required": sig_required,
+            "verification_enabled": verification_enabled,
             "mapping_sha256": mapping_sha256,
         }
         if effective_build_id:
@@ -1244,6 +1637,7 @@ def format_report_terminal(report: VerificationReport) -> str:
                 f"{report.summary.get('skipped', 0)} Skipped, "
                 f"{report.summary.get('info', 0)} Informational"
             ),
+            f"Verification Status        : {report.verification_status}",
             f"Protected Release Verified : {'YES' if report.is_verified_protected else 'NO'}",
             f"Android Installation Ready : {report.installation_readiness_status}",
             "=" * 68,
@@ -1266,6 +1660,7 @@ def format_report_markdown(report: VerificationReport) -> str:
         f"- **File Size**: `{report.artifact.get('size_bytes', 0):,} bytes`",
         f"- **Signature**: `{report.artifact.get('signature_type')}`",
         f"- **Real Build**: `{'Yes' if report.artifact.get('is_real_build') else 'No (Simulated / Fixture)'}`",
+        f"- **Verification Status**: `{report.verification_status}`",
         f"- **Verified Protected**: `{'Yes' if report.is_verified_protected else 'No'}`",
         f"- **Installation Ready**: `{report.installation_readiness_status}`",
         "",
