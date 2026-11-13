@@ -66,9 +66,15 @@ AppShield is designed around six coordinated functional systems:
 - **System E — Anti-Piracy and Trust Engine** *(Detection, Prevention & Attestation)*: Certificate signature pinning, installer verification, and optional backend attestation (supporting Google Play Integrity and custom backend verification schemas for connected apps).
 - **System F — Security Verification & Attack Laboratory** *(Verification)*: Empirical DEX bytecode auditing, multi-check verification engine, automated decompiler analysis simulation (JADX), and audit report generation.
 
-### Local-First vs. Network Integrations:
-- **Build & Protection Pipeline**: 100% local-first and offline by default. Zero outbound sockets, zero telemetry, and zero remote dependencies during protection and verification. Network access for dependency resolution requires explicit user authorization (`--allow-network-dependencies`).
-- **Protected Application Runtime**: Local runtime defenses (self-integrity, anti-debug, signature pinning) operate completely self-contained and fully support offline applications. Network-dependent services (Play Integrity, server-side attestation) are strictly optional, opt-in configurations for connected apps and are never mandatory for offline operation.
+### Local-First Execution and Network Policy:
+AppShield enforces a precise, local-first operational policy:
+1. **Local-First Operation by Default**: AppShield operates locally by default.
+2. **Gradle Dependency Resolution**: Gradle dependency resolution uses `--offline` by default.
+3. **No Intentional Data Transmission**: AppShield does not intentionally transmit source code, APKs, mappings, credentials, or telemetry to remote services.
+4. **Authorized Network Resolution**: Network-enabled dependency resolution requires explicit authorization through `--allow-network-dependencies`.
+5. **Optional Network Integrations**: Optional backend, licensing, and Google Play Integrity integrations require explicit configuration and authorization; local runtime defenses operate self-contained for offline applications and are never mandatory for offline operation.
+6. **Gradle Offline Boundary Limitation**: Gradle's `--offline` mode prevents network access for dependency resolution, but must not be described as a complete OS-level network sandbox for arbitrary Gradle build scripts or third-party plugins.
+7. **Strict Network Isolation**: Strict network isolation requires an external firewall, container, or operating-system network restriction.
 
 ---
 
@@ -76,6 +82,10 @@ AppShield is designed around six coordinated functional systems:
 
 ### Platform Scope
 Android is the active, first implementation platform. iOS and Windows architectures are deferred to post-Android milestones.
+
+### Definition of "Implemented"
+> [!NOTE]
+> In AppShield's documentation and requirements, **"Implemented"** means the functionality exists in the codebase and is covered by automated unit and integration tests. It does not automatically mean compatibility with every real Android project has been independently demonstrated.
 
 ### Toolchain Baseline Status
 - **Empirically Verified Toolchain**:
@@ -131,8 +141,8 @@ Android is the active, first implementation platform. iOS and Windows architectu
 1. **Python CLI Architecture**: Built as a standard Python 3.10+ package with standard library tooling (`subprocess`, `pathlib`, `zipfile`, `hashlib`), using external tools as isolated subprocesses.
 2. **Vanilla Implementation**: No unnecessary third-party runtime frameworks or heavy binary compile steps unless justified and approved.
 3. **Toolchain Standards**: Target toolchain is OpenJDK 17 + Gradle 8.2 + AGP 8.2.2 + Android SDK Platform 34 + Build-Tools 34.0.0 (`zipalign`, `apksigner`). Do not claim unvalidated support for newer versions.
-4. **Local-First & Zero Telemetry by Default**: 100% offline local execution by default for build protection. Zero phone-home network calls, zero tracking, zero remote telemetry.
-5. **No Cloud Dependency for Offline Apps**: Code protection, transformation, and verification operate entirely on the developer's workstation. Runtime network integrations are strictly opt-in.
+4. **Local-First Operation & Dependency Policy**: AppShield operates locally by default. Gradle dependency resolution uses `--offline` by default. AppShield does not intentionally transmit source code, APKs, mappings, credentials, or telemetry to remote services. Network-enabled dependency resolution requires explicit authorization via `--allow-network-dependencies`. Gradle's `--offline` flag must not be described as an OS-level network sandbox; strict network isolation requires an external firewall, container, or operating-system network restriction.
+5. **Optional Network Integrations**: Code protection, transformation, and verification operate locally on the developer workstation. Optional backend, licensing, and Google Play Integrity integrations require explicit configuration and authorization and are never mandatory for offline-capable applications.
 6. **Source-Tree Immutability**: Original source code is treated strictly as read-only; staging copies are made in ephemeral directories.
 7. **Secure Subprocess Execution**: No `shell=True` on untrusted inputs; arguments passed as sanitized token lists; process trees terminated on timeout.
 8. **Strict Credential Isolation**: Signing credentials passed via environment variable names or file descriptors; child environments stripped of unrelated host tokens via `build_safe_env()`.
